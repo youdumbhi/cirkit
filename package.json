@@ -1,0 +1,28 @@
+{
+  "name": "cirkit",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+
+    "dev:client": "vite",
+    "dev:server": "npm --prefix server run dev",
+    "dev:full": "concurrently -n client,server -c auto \"npm:dev:client\" \"npm:dev:server\"",
+
+    "build": "npm run build:client",
+    "build:client": "tsc && vite build",
+    "build:server": "npm --prefix server run build",
+    "build:full": "concurrently -n client,server -c auto \"npm:build:client\" \"npm:build:server\"",
+
+    "preview": "vite preview",
+    "start:server": "npm --prefix server run start",
+    "start:full": "concurrently -n client,server -c auto \"npm:preview\" \"npm:start:server\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "cross-env": "^7.0.3",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.2"
+  }
+}

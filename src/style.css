@@ -1,0 +1,2926 @@
+:root {
+/* ===== SECTION 1: Base layout + app shell ===== */
+  --bg: #f8fafc;
+  --grid-line: #e2e8f0;
+  --node-bg: #ffffff;
+  --node-border: #111827;
+  --switch-off: #0f172a;
+  --switch-on: #22c55e;
+  --wire: #111827;
+  --wire-active: #ef4444;
+  --select-blue: #2563eb;
+  --sidebar-width: 220px;
+  --toolbar-height: 48px;
+  --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+}
+
+.cirkit-app {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  height: 100vh;
+}
+
+/* Sidebar */
+
+.sidebar {
+  border-right: 1px solid #e5e7eb;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #f5f5f5;
+}
+
+.logo {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.18em;
+}
+
+/* palette: 2 per row */
+
+.palette {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.palette-item {
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: grab;
+}
+
+.palette-item-ic {
+  cursor: default;
+}
+
+.palette-node {
+  border-radius: 8px;
+  border: 1px solid #d4d4d4;
+  background: #fff;
+  padding: 3px 6px 5px;
+  font-size: 0.62rem;
+}
+
+.palette-node .node-header {
+  padding: 0 0 2px;
+}
+
+/* Workspace */
+
+.workspace-wrapper {
+  position: relative;
+}
+
+.workspace {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Wires */
+
+.wire-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.wire-path {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.wire-path-real,
+.wire-path-active {
+  pointer-events: stroke;
+}
+
+.wire-path-real {
+  stroke: var(--wire);
+  stroke-width: 3;
+}
+
+.wire-path-active {
+  stroke: var(--wire-active);
+  stroke-dasharray: 12 8;
+  animation: wire-dash 0.65s linear infinite;
+  will-change: stroke-dashoffset;
+}
+
+.wire-path-preview {
+  stroke: #9ca3af;
+  stroke-width: 2;
+  stroke-dasharray: 5 5;
+}
+
+.wire-selected {
+  stroke: var(--select-blue);
+}
+
+@keyframes wire-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+/* Nodes – narrower */
+
+.node {
+  position: absolute;
+  width: 120px;
+  border-radius: 8px;
+  background: var(--node-bg);
+  border: 2px solid var(--node-border);
+  user-select: none;
+  cursor: grab;
+  z-index: 2;
+  transform-origin: center center;
+}
+
+.node-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px 0;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+.node-action-button {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #0f172a;
+  padding: 2px 7px;
+  font: 600 10px/1 var(--font);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.node-action-button:hover {
+  background: #eef2f7;
+}
+
+.node-action-button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.node-body {
+  position: relative;
+  padding: 8px 12px 10px;
+}
+
+/* selection outline */
+
+.node-selected {
+  border-color: var(--select-blue);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+}
+
+.workspace-note {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  min-height: 110px;
+  border-radius: 10px;
+  border: 2px solid #d8c56e;
+  background: #fff4b8;
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.12);
+  overflow: hidden;
+  z-index: 1;
+}
+
+.workspace-note-text {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  padding: 14px 14px 24px;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: #443710;
+  font: 400 14px/1.45 var(--font);
+}
+
+.workspace-note-text::placeholder {
+  color: rgba(68, 55, 16, 0.48);
+}
+
+.workspace-note-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background:
+    linear-gradient(135deg, transparent 0 46%, #8f7a35 46% 54%, transparent 54% 100%),
+    linear-gradient(135deg, transparent 0 63%, #8f7a35 63% 71%, transparent 71% 100%);
+  cursor: nwse-resize;
+  opacity: 0.8;
+}
+
+.workspace-note-resize:hover {
+  opacity: 1;
+}
+
+.note-selected {
+  border-color: var(--select-blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18), 0 12px 24px rgba(15, 23, 42, 0.12);
+}
+
+/* Ports */
+
+.node-port {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+}
+
+.node-port-input {
+  left: -7px;
+  top: 50%;
+  background: #111827;
+}
+
+.node-port-output {
+  right: -7px;
+  top: 50%;
+  background: transparent;
+  border: 2px solid #111827;
+}
+
+.node-port.port-dragging {
+  outline: 2px solid #f97316;
+  outline-offset: 2px;
+}
+
+/* Switch – shorter */
+
+.switch-shell {
+  position: relative;
+  width: 60px;
+  height: 18px;
+  border-radius: 30px;
+  border: 2px solid #c2410c;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  background: #fff7e6;
+}
+
+.switch-knob {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--switch-off);
+  transition: transform 140ms ease-out, background 140ms ease-out;
+}
+
+.switch-shell.is-on .switch-knob {
+  transform: translateX(28px);
+  background: var(--switch-on);
+}
+
+/* Output lamp */
+
+.output-lamp {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.output-core {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid #0f172a;
+  background: #ffffff;
+  transition: border-color 120ms ease-out, background 120ms ease-out;
+}
+
+.output-core.is-on {
+  border-color: #22c55e;
+  background: #c5f5d4;
+}
+
+/* Gate shapes – ~2:4 ratio */
+
+.gate-shape {
+  position: relative;
+  width: 40px;
+  height: 20px;
+  margin-left: 4px;
+}
+
+.gate-shape.gate-inline-svg {
+  width: 64px;
+  height: 40px;
+  margin: 0 auto;
+  display: grid;
+  place-items: center;
+  border: none !important;
+  border-radius: 0 !important;
+  background: none !important;
+  overflow: visible;
+}
+
+.gate-shape.gate-inline-svg svg {
+  width: 64px;
+  height: 40px;
+  display: block;
+  overflow: visible;
+}
+
+.gate-shape.gate-inline-svg .gate-body,
+.gate-shape.gate-inline-svg .gate-bubble,
+.gate-shape.gate-inline-svg .gate-lead {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.gate-shape.gate-inline-svg .gate-body {
+  fill: none;
+  stroke: var(--node-border);
+}
+
+.gate-shape.gate-inline-svg .gate-bubble {
+  fill: var(--node-bg);
+  stroke: var(--node-border);
+}
+
+.gate-shape.gate-inline-svg .gate-svg-workspace .gate-body,
+.gate-shape.gate-inline-svg .gate-svg-workspace .gate-bubble {
+  stroke-width: 1.8;
+}
+
+.gate-shape.gate-inline-svg .gate-svg-palette .gate-body,
+.gate-shape.gate-inline-svg .gate-svg-palette .gate-bubble {
+  stroke-width: 1.65;
+}
+
+.gate-shape.gate-inline-svg .gate-lead {
+  fill: none;
+  stroke: var(--wire);
+}
+
+.gate-shape.gate-inline-svg .gate-svg-workspace .gate-lead {
+  stroke-width: 3;
+}
+
+.gate-shape.gate-inline-svg .gate-svg-palette .gate-lead {
+  stroke-width: 1.7;
+}
+
+.gate-shape.gate-inline-svg .gate-svg-workspace .gate-lead-active {
+  stroke: var(--wire-active);
+  stroke-width: 3;
+  stroke-dasharray: 12 8;
+  animation: wire-dash 0.65s linear infinite;
+}
+
+.gate-shape.gate-inline-svg::before,
+.gate-shape.gate-inline-svg::after {
+  content: none !important;
+  display: none !important;
+}
+
+
+
+/* AND: classic D-shape */
+.gate-and {
+  border: 2px solid #111827;
+  border-radius: 0 14px 14px 0;
+}
+
+/* OR: based on AND, slightly bulged front */
+.gate-or {
+  position: relative;
+  border-radius: 0 14px 14px 0;
+  border: 2px solid transparent;
+}
+.gate-or::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: -4px;
+  right: -2px;
+  border: 2px solid #111827;
+  border-radius: 0 16px 16px 0;
+  transform-origin: center;
+  transform: skewX(-10deg);
+}
+
+/* NOT: triangle + bubble */
+
+.gate-not::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 2px;
+  border-left: 24px solid #111827;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+}
+
+.gate-not::after {
+  content: "";
+  position: absolute;
+  left: 26px;
+  top: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  border: 2px solid #111827;
+}
+
+/* stacked inputs */
+
+.node-and .node-port-input-a,
+.node-or .node-port-input-a {
+  top: 30%;
+}
+
+.node-and .node-port-input-b,
+.node-or .node-port-input-b {
+  top: 70%;
+}
+
+/* IC block in workspace */
+
+.node-ic {
+  width: 140px;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.ic-header {
+  justify-content: center;
+}
+
+.ic-title {
+  letter-spacing: 0.06em;
+  font-weight: 500;
+}
+
+.ic-body {
+  position: relative;
+}
+
+/* ports are positioned vertically in JS via style.top */
+
+.ic-port-input {
+  left: -7px;
+}
+
+.ic-port-output {
+  right: -7px;
+}
+
+/* IC editor bar */
+
+.ic-editor-bar {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #111827;
+  color: #f9fafb;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 5;
+}
+
+.ic-editor-bar button {
+  border: none;
+  border-radius: 999px;
+  padding: 2px 10px;
+  background: #22c55e;
+  color: #022c22;
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+/* marquee selection rectangle */
+
+.marquee-rect {
+  position: absolute;
+  border: 1px dashed var(--select-blue);
+  background: rgba(37, 99, 235, 0.08);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* context menu */
+
+.context-menu {
+  position: fixed;
+  background: #ffffff;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+  padding: 2px 0;
+  font-size: 0.72rem;
+  z-index: 9999;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+.context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 4px 12px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-menu-item:hover:not(:disabled) {
+  background: #e5f0ff;
+}
+
+.context-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* IC mini icon in palette */
+
+.palette-ic-node .ic-mini-io {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ic-mini-inputs,
+.ic-mini-outputs {
+  display: flex;
+  flex-direction: column;
+}
+
+.ic-mini-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  border: 1px solid #111827;
+  margin: 2px 0;
+}
+
+.ic-mini-inputs .ic-mini-dot {
+  background: #111827;
+}
+
+.ic-mini-outputs .ic-mini-dot {
+  background: transparent;
+}
+
+/* IC edit button in palette */
+
+.ic-edit-button {
+  margin-top: 4px;
+  font-size: 0.6rem;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid #9ca3af;
+  background: #f9fafb;
+  cursor: pointer;
+}
+.ic-edit-button:hover {
+  background: #e5e7eb;
+}
+
+/* ---------- BUTTON: circular momentary push button ---------- */
+
+.node-button .switch-shell,
+.palette-item[data-node-type="BUTTON"] .switch-shell {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid #111827;
+  padding: 0;
+  background: #f9fafb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.node-button .switch-knob,
+.palette-item[data-node-type="BUTTON"] .switch-knob {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #111827;
+  box-shadow: 0 0 0 2px #111827 inset;
+  transform: translateY(0);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.node-button .switch-shell.is-on,
+.palette-item[data-node-type="BUTTON"] .switch-shell.is-on {
+  border-color: #f97316;
+}
+
+.node-button .switch-shell.is-on .switch-knob,
+.palette-item[data-node-type="BUTTON"] .switch-shell.is-on .switch-knob {
+  transform: translateY(1px);
+  box-shadow: 0 0 0 2px #f97316 inset;
+}
+
+/* ---------- LED: diode symbol with two leads (different from OUTPUT) ---------- */
+/* ===== SECTION 2: Palette + toolbar + node chrome styles ===== */
+
+.node-led .output-lamp,
+.palette-item[data-node-type="LED"] .output-lamp {
+  position: relative;
+  width: 40px;
+  height: 18px;
+  border-radius: 4px;
+  border: 2px solid #111827;
+  background: transparent;
+  overflow: visible;
+}
+
+/* leads on each side */
+.node-led .output-lamp::before,
+.node-led .output-lamp::after,
+.palette-item[data-node-type="LED"] .output-lamp::before,
+.palette-item[data-node-type="LED"] .output-lamp::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 2px;
+  margin-top: -1px;
+  background: #111827;
+}
+
+.node-led .output-lamp::before,
+.palette-item[data-node-type="LED"] .output-lamp::before {
+  left: -10px;
+}
+
+.node-led .output-lamp::after,
+.palette-item[data-node-type="LED"] .output-lamp::after {
+  right: -10px;
+}
+
+/* diode triangle */
+.node-led .output-core,
+.palette-item[data-node-type="LED"] .output-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  background: transparent;
+}
+
+/* JS turns the LED "on" by setting background + box-shadow on .output-core */
+
+/* ---------- IC LED indicators: dots in the middle of the IC ---------- */
+
+.node-ic .ic-body {
+  position: relative;
+}
+
+.node-ic .ic-leds {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.node-ic .ic-led-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 2px solid #111827;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* JS adds .is-on and inline color styles when the internal LEDs are on */
+.node-ic .ic-led-indicator.is-on {
+  /* default in case JS doesn't override */
+  background: #22c55e;
+}
+
+/* --- Bigger grid area + scrollable wrapper --- */
+.workspace-wrapper {
+  position: relative;
+  overflow: auto;
+}
+
+.workspace-zoom-shell {
+  position: relative;
+  min-width: 3200px;
+  min-height: 6200px;
+}
+
+/* --- Make IC editor bar more prominent --- */
+.ic-editor-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 48px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #111827;
+  color: #f9fafb;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 20;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+.ic-editor-bar .ic-editor-done {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: none;
+  background: #22c55e;
+  color: #0b1120;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* --- BUTTON: more "real" pushbutton --- */
+.node-button .switch-shell,
+.palette-item[data-node-type="BUTTON"] .switch-shell {
+  position: relative;
+  width: 54px;
+  height: 20px;
+  border-radius: 10px;
+  border: 2px solid #111827;
+  background: linear-gradient(#f3f4f6, #e5e7eb);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 4px;
+}
+
+.node-button .switch-knob,
+.palette-item[data-node-type="BUTTON"] .switch-knob {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #111827;
+  box-shadow: 0 1px 1px rgba(0,0,0,0.4);
+  transform: translateY(-1px);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.node-button .switch-shell.is-on,
+.palette-item[data-node-type="BUTTON"] .switch-shell.is-on {
+  border-color: #f97316;
+  background: linear-gradient(#fed7aa, #fdba74);
+}
+
+.node-button .switch-shell.is-on .switch-knob,
+.palette-item[data-node-type="BUTTON"] .switch-shell.is-on .switch-knob {
+  transform: translate(26px, 0);
+}
+
+/* --- LED: bigger, diode symbol --- */
+.node-led .output-lamp,
+.palette-item[data-node-type="LED"] .output-lamp {
+  position: relative;
+  width: 56px;
+  height: 26px;
+  border-radius: 6px;
+  border: 2px solid #111827;
+  background: transparent;
+  overflow: visible;
+}
+
+.node-led .output-lamp::before,
+.node-led .output-lamp::after,
+.palette-item[data-node-type="LED"] .output-lamp::before,
+.palette-item[data-node-type="LED"] .output-lamp::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 2px;
+  margin-top: -1px;
+  background: #111827;
+}
+
+.node-led .output-lamp::before,
+.palette-item[data-node-type="LED"] .output-lamp::before {
+  left: -10px;
+}
+
+.node-led .output-lamp::after,
+.palette-item[data-node-type="LED"] .output-lamp::after {
+  right: -10px;
+}
+
+.node-led .output-core,
+.palette-item[data-node-type="LED"] .output-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  background: transparent;
+}
+
+/* --- IC LED indicator dots stay small (handled in TS) --- */
+.node-ic .ic-body {
+  position: relative;
+}
+.node-ic .ic-leds {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.node-ic .ic-led-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 2px solid #111827;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* --- POWER icon --- */
+.node-power .power-icon,
+.palette-item[data-node-type="POWER"] .power-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #111827;
+  position: relative;
+  background: #f97316;
+}
+.node-power .power-icon::before,
+.palette-item[data-node-type="POWER"] .power-icon::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 20%;
+  width: 2px;
+  height: 40%;
+  background: #111827;
+  transform: translateX(-50%);
+}
+
+/* --- CLOCK icon (square wave) --- */
+.clock-icon {
+  width: 40px;
+  height: 18px;
+  border-radius: 4px;
+  border: 2px solid #111827;
+  position: relative;
+}
+.clock-icon::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 50%;
+  height: 0;
+  border-top: 2px solid #111827;
+  box-shadow: 0 -6px 0 0 #fff;
+}
+
+/* --- BUFFER icon --- */
+.gate-buffer {
+  width: 32px;
+  height: 14px;
+  border-radius: 3px;
+  border: 2px solid #111827;
+  position: relative;
+}
+.gate-buffer::after {
+  content: "";
+  position: absolute;
+  right: -6px;
+  top: 50%;
+  margin-top: -4px;
+  border-left: 6px solid #111827;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+
+/* --- light color dialog --- */
+.light-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,23,42,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+.light-dialog {
+  background: #f9fafb;
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.35);
+  min-width: 220px;
+}
+.light-dialog-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.light-dialog-swatches {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.light-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 2px solid #11182722;
+  cursor: pointer;
+}
+.light-dialog-custom {
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.light-dialog-input {
+  width: 120px;
+  margin-left: 4px;
+}
+.light-dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.light-dialog-buttons button {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+}
+.light-dialog-ok {
+  background: #22c55e;
+  color: #0b1120;
+}
+.light-dialog-cancel {
+  background: #e5e7eb;
+}
+
+/* keep IC LED dots small even when on */
+.node-ic .ic-led-indicator.is-on {
+  background: #22c55e;
+}
+
+/* --- Top toolbar --- */
+.top-toolbar {
+  position: fixed;
+  top: 0;
+  left: var(--sidebar-width);
+  right: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--toolbar-height);
+  padding: 6px 10px;
+  background: #e5e7eb;
+  border-bottom: 1px solid #d1d5db;
+}
+.top-toolbar .toolbar-spacer {
+  flex: 1;
+}
+
+.unsaved-warning {
+  max-width: 360px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid #d6b64c;
+  background: #fff4c2;
+  color: #6b5200;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.top-toolbar button {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #9ca3af;
+  background: #f9fafb;
+  font-size: 12px;
+  cursor: pointer;
+}
+.preview-toggle {
+  font-weight: 600;
+}
+
+/* --- Workspace & grid scroll area --- */
+.workspace-wrapper {
+  position: relative;
+  padding-top: var(--toolbar-height);
+  overflow: auto;
+}
+.workspace-zoom-shell {
+  position: relative;
+  width: 3200px;
+  height: 6200px;
+}
+.workspace {
+  position: relative;
+  width: 3200px;
+  height: 6200px;
+  overflow: visible;
+  transform-origin: 0 0;
+}
+
+/* --- IC editor bar already defined, keep as-is --- */
+
+/* --- KEY icon --- */
+.node-key .keycap,
+.palette-item[data-node-type="KEY"] .keycap {
+  width: 32px;
+  height: 18px;
+  border-radius: 4px;
+  border: 2px solid #111827;
+  position: relative;
+  background: #f3f4f6;
+}
+.node-key .keycap::before,
+.palette-item[data-node-type="KEY"] .keycap::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 3px;
+  height: 2px;
+  background: #11182733;
+}
+
+/* --- LED as big circle (workspace + palette) --- */
+.node-led .output-lamp,
+.palette-item[data-node-type="LED"] .output-lamp {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid #111827;
+  background: transparent;
+}
+.node-led .output-lamp::before,
+.node-led .output-lamp::after,
+.palette-item[data-node-type="LED"] .output-lamp::before,
+.palette-item[data-node-type="LED"] .output-lamp::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 2px;
+  margin-top: -1px;
+  background: #111827;
+}
+.node-led .output-lamp::before,
+.palette-item[data-node-type="LED"] .output-lamp::before {
+  left: -10px;
+}
+.node-led .output-lamp::after,
+.palette-item[data-node-type="LED"] .output-lamp::after {
+  right: -10px;
+}
+.node-led .output-core,
+.palette-item[data-node-type="LED"] .output-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  clip-path: none;
+  background: transparent;
+}
+
+/* --- Extra gate icons --- */
+.gate-nand {
+  width: 32px;
+  height: 14px;
+  border-radius: 7px 14px 14px 7px;
+  border: 2px solid #111827;
+  position: relative;
+}
+.gate-nand::after {
+  content: "";
+  position: absolute;
+  right: -6px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  border: 2px solid #111827;
+  background: #f9fafb;
+}
+/* ===== SECTION 3: Gate/IC visuals + glyphs + connection ports ===== */
+
+.gate-nor {
+  width: 32px;
+  height: 14px;
+  border-radius: 14px 18px 18px 14px;
+  border: 2px solid #111827;
+  border-left-width: 0;
+  position: relative;
+}
+.gate-nor::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 50%;
+  border: 2px solid #111827;
+  border-right-width: 0;
+}
+.gate-nor::after {
+  content: "";
+  position: absolute;
+  right: -6px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  border: 2px solid #111827;
+  background: #f9fafb;
+}
+
+.gate-xor {
+  width: 32px;
+  height: 14px;
+  border-radius: 14px 18px 18px 14px;
+  border: 2px solid #111827;
+  border-left-width: 0;
+  position: relative;
+}
+.gate-xor::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  border-radius: 14px 18px 18px 14px;
+  border: 2px solid #111827;
+  border-left-width: 0;
+  opacity: 0.7;
+}
+
+/* IC LED dots remain small */
+.node-ic .ic-led-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 2px solid #111827;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ===== Global nav (Workspace / Community / Account) ===== */
+.global-nav {
+  position: fixed;
+  top: 6px;
+  right: 12px;
+  z-index: 50;
+  display: flex;
+  gap: 6px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", sans-serif;
+}
+
+.global-nav .nav-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 999px;
+  border: 1px solid #6b7280;
+  background: #111827;
+  color: #f9fafb;
+  cursor: pointer;
+}
+
+.global-nav .nav-btn:hover {
+  background: #1f2937;
+}
+
+/* Put a bit of spacing on Save-to-account button */
+.save-account-button {
+  margin-left: 4px;
+}
+
+/* ===== Overlays (Account + Community) ===== */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.overlay.hidden {
+  display: none;
+}
+/* Make the Account overlay wider so forms don't need horizontal scroll */
+.overlay-account .overlay-panel {
+  width: 520px;
+  max-width: 90vw;
+}
+
+.overlay-panel {
+  width: 520px;
+  max-height: 70vh;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: #e5e7eb;
+  border-bottom: 1px solid #d1d5db;
+}
+
+.overlay-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.overlay-header-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.overlay-header button {
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid #9ca3af;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.overlay-header button:hover {
+  background: #e5e7eb;
+}
+
+.overlay-body {
+  padding: 10px;
+  overflow: auto;
+}
+
+/* ===== Community list ===== */
+
+.community-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.community-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  background: #f3f4f6;
+}
+
+.community-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.community-meta {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 1px;
+}
+
+.visibility-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid #9ca3af;
+  font-size: 10px;
+  margin-left: 6px;
+  text-transform: capitalize;
+}
+
+/* ===== Account panel ===== */
+
+.account-unauth,
+.account-auth,
+.account-circuits {
+  margin-bottom: 10px;
+}
+
+.account-unauth h3,
+.account-auth h3,
+.account-circuits h3 {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.form-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.form-row input {
+  flex: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid #9ca3af;
+  font-size: 12px;
+  background: #ffffff;
+}
+
+.form-row button {
+  padding: 3px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid #9ca3af;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.form-row button:hover {
+  background: #e5e7eb;
+}
+
+.account-info {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.account-buttons {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.account-buttons button {
+  padding: 3px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid #9ca3af;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.account-buttons button:hover {
+  background: #e5e7eb;
+}
+
+.account-circuit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.account-circuit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.account-circuit-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+  background: #f3f4f6;
+  font-size: 12px;
+}
+
+.account-circuit-title {
+  font-weight: 500;
+}
+
+/* Override nav position so it doesn't overlap Save/Load */
+.global-nav {
+  top: auto;
+  bottom: 8px;
+  right: 12px;
+}
+
+/* ===== Global nav (Workspace / Community / Account) ===== */
+.global-nav {
+  position: fixed;
+  top: auto;
+  bottom: 8px;
+  right: 12px;
+  z-index: 50;
+  display: flex;
+  gap: 6px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", sans-serif;
+}
+
+.global-nav .nav-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 999px;
+  border: 1px solid #6b7280;
+  background: #111827;
+  color: #f9fafb;
+  cursor: pointer;
+}
+
+.global-nav .nav-btn:hover {
+  background: #1f2937;
+}
+
+/* Save-to-account button spacing */
+.save-account-button {
+  margin-left: 4px;
+}
+
+/* ===== Overlays (Account, Community, Save dialog) ===== */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.overlay.hidden {
+  display: none;
+}
+
+.overlay-panel {
+  width: 520px;
+  max-height: 70vh;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: #e5e7eb;
+  border-bottom: 1px solid #d1d5db;
+}
+
+.overlay-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.overlay-header-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.overlay-header button {
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid #9ca3af;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.overlay-header button:hover {
+  background: #e5e7eb;
+}
+
+.overlay-body {
+  padding: 10px;
+  overflow: auto;
+}
+
+/* ===== Community list ===== */
+
+.community-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.community-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  background: #f3f4f6;
+}
+
+.community-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.community-meta {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 1px;
+}
+
+.visibility-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid #9ca3af;
+  font-size: 10px;
+  margin-left: 6px;
+  text-transform: capitalize;
+}
+
+/* ===== Account panel ===== */
+
+.account-unauth,
+.account-auth,
+.account-circuits {
+  margin-bottom: 10px;
+}
+
+.account-unauth h3,
+.account-auth h3,
+.account-circuits h3 {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.form-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.form-row input {
+  flex: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid #9ca3af;
+  font-size: 12px;
+  background: #ffffff;
+}
+
+.form-row button {
+  padding: 3px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid #9ca3af;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.form-row button:hover {
+  background: #e5e7eb;
+}
+
+.account-info {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.account-buttons {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+/* ===== SECTION 4: Modals + buttons + IC editor + community panels ===== */
+
+.account-buttons button {
+  padding: 3px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid #9ca3af;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.account-buttons button:hover {
+  background: #e5e7eb;
+}
+
+.account-circuit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.account-circuit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.account-circuit-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+  background: #f3f4f6;
+  font-size: 12px;
+}
+
+.account-circuit-title {
+  font-weight: 500;
+}
+
+/* Save-to-account dialog tweaks */
+.overlay-save-account .save-vis-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.overlay-save-account .save-vis-row button {
+  flex: 1;
+  padding: 3px 6px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid #9ca3af;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.overlay-save-account .save-vis-row button.active {
+  background: #111827;
+  color: #f9fafb;
+  border-color: #111827;
+}
+
+/* Small link-ish button under login */
+.account-unauth .forgot-button {
+  margin-top: 4px;
+  font-size: 11px;
+  border: none;
+  background: none;
+  color: #2563eb;
+  cursor: pointer;
+  padding: 0;
+}
+
+.account-unauth .forgot-button:hover {
+  text-decoration: underline;
+}
+
+/* Verify bar in account-auth */
+.account-email-tools {
+  margin-top: 4px;
+  font-size: 11px;
+  display: flex;
+  gap: 6px;
+}
+
+.account-email-tools button {
+  padding: 2px 6px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid #9ca3af;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.account-email-tools button:hover {
+  background: #e5e7eb;
+}
+
+/* Hide old email verification tools (no longer used) */
+.account-email-tools {
+  display: none !important;
+}
+
+/* === IC Toolbox overlay === */
+.overlay-toolbox .overlay-panel {
+  width: 540px;
+}
+
+.toolbox-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.toolbox-header-row button {
+  padding: 3px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid #9ca3af;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.toolbox-header-row button:hover {
+  background: #e5e7eb;
+}
+
+.toolbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.toolbox-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  background: #e5e7eb;
+  font-size: 12px;
+}
+
+.toolbox-item-main {
+  display: flex;
+  flex-direction: column;
+}
+
+.toolbox-name {
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.toolbox-meta {
+  font-size: 11px;
+  color: #4b5563;
+  margin-top: 1px;
+}
+
+.toolbox-actions button {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid #6b7280;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.toolbox-actions button:hover {
+  background: #e5e7eb;
+}
+
+/* Small button next to Save-to-account */
+.upload-toolbox-button {
+  margin-left: 4px;
+  font-size: 11px;
+}
+
+/* Hide old birthday signup field if it still exists */
+.signup-birthday {
+  display: none !important;
+}
+
+/* Wider Account overlay so forms don't require horizontal scrolling */
+.overlay-account .overlay-panel {
+  width: 520px;
+  max-width: 95vw;
+}
+
+/* Forgot password mini panel in Account overlay */
+.forgot-panel {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #d1d5db;
+  font-size: 12px;
+}
+
+.forgot-panel-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #111827;
+}
+
+.forgot-grid {
+  display: grid;
+  gap: 4px;
+}
+
+.forgot-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.forgot-row label {
+  font-size: 11px;
+  color: #4b5563;
+}
+
+.forgot-row input {
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+}
+
+.forgot-actions {
+  margin-top: 6px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.forgot-actions button {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid #6b7280;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.forgot-actions button:hover {
+  background: #e5e7eb;
+}
+
+/* Wider Account overlay so forms don't require horizontal scrolling */
+.overlay-account .overlay-panel {
+  width: 520px;
+  max-width: 95vw;
+}
+
+/* Forgot password mini panel in Account overlay */
+.forgot-panel {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #d1d5db;
+  font-size: 12px;
+}
+
+.forgot-panel-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #111827;
+}
+
+.forgot-grid {
+  display: grid;
+  gap: 4px;
+}
+
+.forgot-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.forgot-row label {
+  font-size: 11px;
+  color: #4b5563;
+}
+
+.forgot-row input {
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+}
+
+.forgot-actions {
+  margin-top: 6px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.forgot-actions button {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid #6b7280;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.forgot-actions button:hover {
+  background: #e5e7eb;
+}
+
+/* Make Account overlay wider so no horizontal scrolling is needed */
+.overlay-account .overlay-panel {
+  width: 680px;        /* was smaller before */
+  max-width: 98vw;     /* still shrink on tiny screens */
+}
+
+/* Make inputs use full width inside the wider panel without overflowing */
+.overlay-account .overlay-panel input[type="text"],
+.overlay-account .overlay-panel input[type="password"],
+.overlay-account .overlay-panel input[type="email"] {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* Hide the old top "Forgot password?" link/button, since we have Reset password */
+.overlay-account .forgot-password {
+  display: none !important;
+}
+
+
+/* =========================
+   Cirkit modal + toast UI
+   ========================= */
+
+   .cirkit-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(3, 7, 18, 0.55); /* dark overlay */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    z-index: 9999;
+  }
+  
+  .cirkit-modal {
+    width: min(560px, calc(100vw - 36px));
+    max-height: min(80vh, 720px);
+    overflow: auto;
+    border-radius: 14px;
+    background: #0b1220;
+    color: #e5e7eb;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  }
+  
+  .cirkit-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 14px 10px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  
+  .cirkit-modal-title {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  
+  .cirkit-modal-x {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.06);
+    color: #e5e7eb;
+    cursor: pointer;
+  }
+  
+  .cirkit-modal-x:hover {
+    background: rgba(255, 255, 255, 0.10);
+  }
+  
+  .cirkit-modal-body {
+    padding: 14px;
+  }
+  
+  .cirkit-modal-body label {
+    display: block;
+    font-size: 12px;
+    color: #9ca3af;
+    margin-bottom: 6px;
+  }
+  
+  .cirkit-modal-body input,
+  .cirkit-modal-body select,
+  .cirkit-modal-body textarea {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.06);
+    color: #e5e7eb;
+    padding: 10px 10px;
+    outline: none;
+  }
+  
+  .cirkit-modal-body input:focus,
+  .cirkit-modal-body select:focus,
+  .cirkit-modal-body textarea:focus {
+    border-color: rgba(99, 102, 241, 0.55);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+  }
+
+  .cirkit-modal-form {
+    display: grid;
+    gap: 14px;
+  }
+
+  .cirkit-modal-copy,
+  .cirkit-modal-help {
+    font-size: 13px;
+    line-height: 1.5;
+    color: #cbd5e1;
+  }
+
+  .cirkit-field-group {
+    display: grid;
+    gap: 6px;
+  }
+
+  .cirkit-field-label {
+    margin: 0 !important;
+    font-weight: 600;
+  }
+
+  .cirkit-field-error {
+    font-size: 12px;
+    color: #fda4af;
+  }
+
+  .cirkit-slider-group,
+  .cirkit-stepper-group {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .cirkit-slider-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .cirkit-slider-readout {
+    font-size: 12px;
+    font-weight: 700;
+    color: #f8fafc;
+  }
+
+  .cirkit-slider-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 96px;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .cirkit-slider-range {
+    padding: 0 !important;
+    accent-color: #818cf8;
+  }
+
+  .cirkit-stepper-controls {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .cirkit-stepper-btn {
+    height: 42px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.08);
+    color: #f8fafc;
+    font-size: 20px;
+    cursor: pointer;
+  }
+
+  .cirkit-stepper-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+  }
+
+  .cirkit-display-size-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+    color: #cbd5e1;
+  }
+
+  .cirkit-display-size-summary strong {
+    color: #f8fafc;
+    font-size: 15px;
+  }
+
+  .cirkit-display-size-preview {
+    display: grid;
+    gap: 3px;
+    width: fit-content;
+    padding: 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #020617;
+  }
+
+  .cirkit-display-size-preview-note {
+    font-size: 12px;
+    color: #94a3b8;
+  }
+
+  .cirkit-display-size-cell {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: #f8fafc;
+    opacity: 0.9;
+  }
+  
+  .cirkit-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 12px 14px 14px 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  
+  .cirkit-modal-btn {
+    border-radius: 10px;
+    padding: 9px 12px;
+    font-size: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    cursor: pointer;
+    color: #e5e7eb;
+    background: rgba(255, 255, 255, 0.06);
+  }
+  
+  .cirkit-modal-btn:hover {
+    background: rgba(255, 255, 255, 0.10);
+  }
+  
+  .cirkit-modal-btn.primary {
+    background: rgba(99, 102, 241, 0.85);
+    border-color: rgba(99, 102, 241, 0.90);
+    color: white;
+  }
+  
+  .cirkit-modal-btn.primary:hover {
+    background: rgba(99, 102, 241, 0.95);
+  }
+  
+  .cirkit-modal-btn.danger {
+    background: rgba(239, 68, 68, 0.80);
+    border-color: rgba(239, 68, 68, 0.90);
+    color: white;
+  }
+  
+  .cirkit-modal-btn.danger:hover {
+    background: rgba(239, 68, 68, 0.92);
+  }
+  
+  /* Simple toast */
+  .cirkit-toast-host {
+    position: fixed;
+    right: 14px;
+    bottom: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 10000;
+  }
+  
+  .cirkit-toast {
+    min-width: 220px;
+    max-width: 320px;
+    background: rgba(15, 23, 42, 0.95);
+    color: #e5e7eb;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 12px;
+    padding: 10px 12px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    font-size: 13px;
+  }
+  
+
+/* ============================================================
+   Gallery (Account / Explore / IC Library) + Preview thumbnails
+   ============================================================ */
+
+   .gallery {
+    display: grid;
+    gap: 10px;
+  }
+  
+  .gallery-toolbar {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 2px;
+  }
+  
+  .gallery-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #111827;
+  }
+  
+  .gallery-subtitle {
+    font-size: 12px;
+    color: #6b7280;
+    margin-top: 2px;
+  }
+  
+  .gallery-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .gallery-search {
+    width: 220px;
+    max-width: 45vw;
+    border-radius: 10px;
+    border: 1px solid #d1d5db;
+    padding: 8px 10px;
+    font-size: 12px;
+    background: #ffffff;
+    outline: none;
+  }
+  
+  .gallery-search:focus {
+    border-color: rgba(99, 102, 241, 0.55);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+  }
+  
+  .gallery-toolbar .gallery-refresh {
+    border-radius: 10px;
+    border: 1px solid #d1d5db;
+    padding: 7px 10px;
+    font-size: 12px;
+    background: #111827;
+    color: #f9fafb;
+    cursor: pointer;
+  }
+  .gallery-toolbar .gallery-refresh:hover {
+    background: #1f2937;
+  }
+  
+  .gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  
+  @media (min-width: 760px) {
+    .gallery-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  @media (min-width: 1040px) {
+    .gallery-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+  
+  .gallery-card {
+    border-radius: 14px;
+    border: 1px solid rgba(17, 24, 39, 0.12);
+    background: #ffffff;
+    overflow: hidden;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+  
+  .thumb-wrap {
+    position: relative;
+    background: #0b1220;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    min-height: 120px;
+  }
+  
+  .thumb-wrap.small {
+    min-height: 110px;
+  }
+  
+  .thumb-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  
+  .thumb-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(255,255,255,0.10);
+    color: rgba(255,255,255,0.92);
+    border: 1px solid rgba(255,255,255,0.14);
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    backdrop-filter: blur(8px);
+  }
+  
+  .thumb-label {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.72);
+    letter-spacing: 0.01em;
+    z-index: 2;
+  }
+  
+  .thumb-skeleton {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.12), rgba(255,255,255,0.06));
+    background-size: 200% 100%;
+    animation: sk 1.05s ease-in-out infinite;
+  }
+  
+  @keyframes sk {
+    0% { background-position: 0% 0; }
+    100% { background-position: 200% 0; }
+  }
+  
+  .thumb-two {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: rgba(255,255,255,0.06);
+  }
+  
+  .card-body {
+    padding: 10px 10px 8px 10px;
+  }
+  
+  .card-title {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1.2;
+  }
+  
+  .card-meta {
+    margin-top: 4px;
+    font-size: 11.5px;
+    color: #6b7280;
+  }
+  
+  .card-actions {
+    display: flex;
+    gap: 8px;
+    padding: 10px;
+    border-top: 1px solid rgba(17, 24, 39, 0.08);
+    background: rgba(249,250,251,0.8);
+  }
+  
+  .card-btn {
+    flex: 1;
+    border-radius: 12px;
+    border: 1px solid rgba(17, 24, 39, 0.12);
+    padding: 8px 10px;
+    font-size: 12px;
+    background: #ffffff;
+    cursor: pointer;
+  }
+  
+  .card-btn:hover {
+    background: #f3f4f6;
+  }
+  
+  .card-btn.primary {
+    background: rgba(99, 102, 241, 0.88);
+    border-color: rgba(99, 102, 241, 0.92);
+    color: #ffffff;
+  }
+  
+  .card-btn.primary:hover {
+    background: rgba(99, 102, 241, 0.98);
+  }
+  
+
+/* ============================================================
+   FULLSCREEN Account + Community overlays (toolbox unchanged)
+   ============================================================ */
+
+   .overlay {
+    /* lighter backdrop (panel is fullscreen so you barely see it) */
+    background: rgba(15, 23, 42, 0.25);
+  }
+  
+  /* Fullscreen ONLY for Account + Community */
+  .overlay-account .overlay-panel,
+  .overlay-community .overlay-panel {
+    width: 100vw;
+    height: 100vh;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    border: 0;
+    box-shadow: none;
+  }
+  
+  /* Make header feel like a page header */
+  .overlay-account .overlay-header,
+  .overlay-community .overlay-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 12px 16px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  
+  .overlay-account .overlay-body,
+  .overlay-community .overlay-body {
+    padding: 16px 18px 22px;
+    overflow: auto;
+    background: #ffffff;
+  }
+  
+  /* ============================================================
+     LIGHT THEME (Account + Community only)
+     ============================================================ */
+  
+  /* Remove the “dark thumbnail” look inside these fullscreen pages */
+  .overlay-account .thumb-wrap,
+  .overlay-community .thumb-wrap {
+    background: #f3f4f6;
+    border-bottom: 1px solid rgba(17, 24, 39, 0.08);
+  }
+  
+  .overlay-account .thumb-badge,
+  .overlay-community .thumb-badge {
+    background: rgba(255, 255, 255, 0.85);
+    color: #111827;
+    border: 1px solid rgba(17, 24, 39, 0.12);
+    backdrop-filter: blur(8px);
+  }
+  
+  .overlay-account .thumb-label,
+  .overlay-community .thumb-label {
+    color: rgba(17, 24, 39, 0.6);
+  }
+  
+  /* Make the refresh button light (your screenshot has a dark one) */
+  .overlay-account .gallery-toolbar .gallery-refresh,
+  .overlay-community .gallery-toolbar .gallery-refresh {
+    background: #f9fafb;
+    color: #111827;
+    border-color: #d1d5db;
+  }
+  .overlay-account .gallery-toolbar .gallery-refresh:hover,
+  .overlay-community .gallery-toolbar .gallery-refresh:hover {
+    background: #f3f4f6;
+  }
+  
+  /* ============================================================
+     MORE SPACE FOR CARDS (Account + Community only)
+     ============================================================ */
+  
+  .overlay-account .gallery,
+  .overlay-community .gallery {
+    gap: 16px;
+  }
+  
+  .overlay-account .gallery-toolbar,
+  .overlay-community .gallery-toolbar {
+    padding: 10px 2px 14px;
+  }
+  
+  /* Roomier grid + better responsive fill */
+  .overlay-account .gallery-grid,
+  .overlay-community .gallery-grid {
+    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+  
+  /* Bigger card padding + slightly larger thumb area */
+  .overlay-account .thumb-wrap,
+  .overlay-community .thumb-wrap {
+    min-height: 160px;
+  }
+  
+  .overlay-account .card-body,
+  .overlay-community .card-body {
+    padding: 14px 14px 10px 14px;
+  }
+  
+  .overlay-account .card-actions,
+  .overlay-community .card-actions {
+    padding: 14px;
+    gap: 10px;
+    background: rgba(249, 250, 251, 1);
+  }
+  
+  .overlay-account .card-btn,
+  .overlay-community .card-btn {
+    padding: 10px 12px;
+    border-radius: 12px;
+  }
+  
+  /* Optional: make the search box a bit bigger in fullscreen */
+  .overlay-account .gallery-search,
+  .overlay-community .gallery-search {
+    width: 280px;
+    max-width: 55vw;
+  }
+  /* Palette: keep gate icons compact (don’t stretch full tile width) */
+.palette .gate-shape.gate-inline-svg {
+  width: 56px;
+  height: 36px;
+  flex: 0 0 auto;
+}
+
+.palette .gate-shape.gate-inline-svg svg {
+  width: 56px;
+  height: 36px;
+}
+/* ==============================
+   FIX: Palette gate icons stretching wide
+   ============================== */
+
+/* center whatever is inside the palette tile */
+.palette-node .node-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* if the gate icons are SVGs, hard-pin their size */
+.palette-node .node-body svg {
+  width: 56px !important;
+  height: 36px !important;
+  max-width: 56px !important;
+  max-height: 36px !important;
+  flex: 0 0 auto !important;
+  display: block;
+}
+
+/* if some gates are still CSS-div based, pin those too */
+.palette-node .gate-shape {
+  width: 56px !important;
+  height: 36px !important;
+  margin: 0 auto !important;
+}
+/* =========================================
+   FIX: Make palette gate icons same size vibe as top icons
+   (AND/OR/NAND/NOR/XOR/NOT tiles)
+   ========================================= */
+
+/* center everything inside palette tiles */
+.palette-node .node-body {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* gates were offset left */
+.palette-node .gate-shape {
+  margin-left: 0 !important;
+}
+
+/* scale DOWN only the gate drawings in the palette */
+.palette-node .gate-shape,
+.palette-node .gate-nand,
+.palette-node .gate-nor,
+.palette-node .gate-xor,
+.palette-node .gate-buffer {
+  transform: scale(0.78) !important;
+  transform-origin: center !important;
+}
+
+/* (NOT uses the .gate-shape base + ::before/::after) */
+.palette-node .gate-not {
+  transform: scale(0.78) !important;
+  transform-origin: center !important;
+}
+.palette-item {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+}
+/* Make every palette tile the exact same rectangle */
+.palette {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: 96px;   /* <- pick the height you want */
+  gap: 12px;
+}
+
+.palette-item {
+  width: 100%;
+  height: 96px;           /* <- must match grid-auto-rows */
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+/* Make the inner card fill the whole tile */
+.palette-node {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Keep headers consistent even if one has no right label */
+.node-header {
+  height: 22px;           /* <- fixed header height */
+  flex: 0 0 auto;
+}
+
+.node-body {
+  flex: 1 1 auto;         /* body fills the rest */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* ==============================
+   Palette tiles: match OLD BUTTON tile size
+   ============================== */
+
+   .palette {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;              /* matches your original */
+    grid-auto-rows: 74px;  /* <-- OLD button-tile height feel */
+  }
+  
+  /* each draggable button fills its grid slot */
+  .palette-item {
+    width: 100%;
+    height: 100%;
+  }
+  
+  /* inner card fills the tile */
+  .palette-node {
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+  
+    /* keep your original padding */
+    padding: 3px 6px 5px;
+  }
+  
+  /* keep original header spacing */
+  .palette-node .node-header {
+    padding: 0 0 2px;
+    flex: 0 0 auto;
+  }
+  
+  /* body becomes the fill area, centered */
+  .palette-node .node-body {
+    flex: 1 1 auto;
+  
+    /* IMPORTANT: remove inherited workspace padding */
+    padding: 0;
+  
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+/* ==============================
+   Speaker + Display nodes
+   ============================== */
+
+.speaker-icon {
+  position: relative;
+  width: 52px;
+  height: 34px;
+}
+
+.speaker-box {
+  position: absolute;
+  left: 4px;
+  top: 11px;
+  width: 12px;
+  height: 12px;
+  background: #111827;
+  border-radius: 3px 0 0 3px;
+}
+
+.speaker-cone {
+  position: absolute;
+  left: 14px;
+  top: 7px;
+  width: 0;
+  height: 0;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-left: 16px solid #111827;
+}
+
+.speaker-wave {
+  position: absolute;
+  border: 2px solid transparent;
+  border-right-color: #6b7280;
+  border-radius: 50%;
+  opacity: 0.55;
+  transition: opacity 120ms ease, border-right-color 120ms ease,
+    transform 120ms ease;
+}
+
+.speaker-wave-1 {
+  left: 28px;
+  top: 8px;
+  width: 12px;
+  height: 18px;
+}
+
+.speaker-wave-2 {
+  left: 34px;
+  top: 4px;
+  width: 16px;
+  height: 26px;
+}
+
+.speaker-icon.is-on .speaker-wave {
+  opacity: 1;
+  border-right-color: #ef4444;
+  animation: speaker-wave-pulse 0.55s ease-in-out infinite;
+}
+
+.speaker-icon.is-on .speaker-wave-2 {
+  animation-delay: 0.08s;
+}
+
+@keyframes speaker-wave-pulse {
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+.node-display {
+  min-width: 156px;
+}
+
+.node-display .node-display-body {
+  position: relative;
+  display: block !important;
+  padding: 10px 12px;
+}
+
+.display-input-grid {
+  position: absolute;
+  left: 12px;
+  border-radius: 10px;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)),
+    rgba(2, 6, 23, 0.62);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+}
+
+.display-port {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid #cbd5e1;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.35);
+  transition: border-color 120ms ease, background-color 120ms ease,
+    box-shadow 120ms ease, transform 120ms ease;
+}
+
+.display-port.is-hovered {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: #f8fafc;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.14);
+  transform: translateY(-50%) scale(1.12);
+}
+
+.display-screen {
+  position: absolute;
+  display: grid;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 2px solid #111827;
+  background: #050505;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.display-pixel {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  border: 1px solid #1f2937;
+  background: #0a0a0a;
+  transition: background-color 120ms ease, border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.display-pixel.is-on {
+  background: #f8fafc;
+  border-color: #e5e7eb;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.22);
+}
+
+.display-pixel.is-hovered {
+  border-color: #f8fafc;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.14);
+}
+
+.palette-display-icon {
+  display: grid;
+  grid-template-columns: repeat(4, 8px);
+  gap: 2px;
+  padding: 4px;
+  border: 2px solid #111827;
+  border-radius: 6px;
+  background: #050505;
+}
+
+.palette-display-pixel {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: #111111;
+}
+
+.palette-display-pixel.is-on {
+  background: #f8fafc;
+}
+  
