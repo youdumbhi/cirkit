@@ -10,6 +10,7 @@ import {
   ToolboxIC,
   User,
   Visibility,
+  WorkspaceDraft,
 } from "./storage";
 
 const app = express();
@@ -65,6 +66,15 @@ function toClientToolboxEntry(entry: ToolboxIC) {
     description: entry.description,
     data: entry.data,
     createdAt: entry.createdAt,
+  };
+}
+
+function toClientWorkspaceDraft(draft: WorkspaceDraft) {
+  return {
+    title: draft.title,
+    visibility: draft.visibility,
+    data: draft.data,
+    updatedAt: draft.updatedAt,
   };
 }
 
@@ -207,7 +217,11 @@ api.post("/auth/google", async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error("Google auth error:", err);
-    res.status(401).json({ error: "Google auth failed" });
+    const detail =
+      err instanceof Error && err.message.trim()
+        ? `Google auth failed: ${err.message.trim()}`
+        : "Google auth failed";
+    res.status(401).json({ error: detail });
   }
 });
 
@@ -311,6 +325,69 @@ api.get("/circuits/:id", (req: Request, res: Response) => {
   }
 
   res.json(toClientCircuit(circuit));
+});
+
+// ---------- Workspace draft routes ----------
+
+api.get("/workspace-draft", requireAuth, (req: Request, res: Response) => {
+  const user = (req as any).user as User;
+  const draft = store.workspaceDrafts.find((item) => item.ownerId === user.id);
+  if (!draft) {
+    res.status(404).json({ error: "not found" });
+    return;
+  }
+  res.json(toClientWorkspaceDraft(draft));
+});
+
+api.put("/workspace-draft", requireAuth, (req: Request, res: Response) => {
+  const user = (req as any).user as User;
+  const body = req.body || {};
+  const title: string | undefined = body.title;
+  const visibility: string | undefined = body.visibility;
+  const data = body.data;
+
+  if (!title || !visibility || typeof data === "undefined") {
+    res.status(400).json({ error: "missing fields" });
+    return;
+  }
+
+  if (visibility !== "private" && visibility !== "preview" && visibility !== "open") {
+    res.status(400).json({ error: "invalid visibility" });
+    return;
+  }
+
+  let draft = store.workspaceDrafts.find((item) => item.ownerId === user.id);
+  if (!draft) {
+    draft = {
+      key: "draft-" + user.googleSub,
+      ownerId: user.id,
+      ownerGoogleSub: user.googleSub,
+      title,
+      visibility: visibility as Visibility,
+      data,
+      updatedAt: Date.now(),
+    };
+    store.workspaceDrafts.push(draft);
+  } else {
+    draft.title = title;
+    draft.visibility = visibility as Visibility;
+    draft.data = data;
+    draft.updatedAt = Date.now();
+    draft.ownerGoogleSub = user.googleSub;
+  }
+
+  saveStore();
+  res.json(toClientWorkspaceDraft(draft));
+});
+
+api.delete("/workspace-draft", requireAuth, (req: Request, res: Response) => {
+  const user = (req as any).user as User;
+  const index = store.workspaceDrafts.findIndex((item) => item.ownerId === user.id);
+  if (index >= 0) {
+    store.workspaceDrafts.splice(index, 1);
+    saveStore();
+  }
+  res.json({ ok: true });
 });
 
 // ---------- IC Toolbox routes ----------

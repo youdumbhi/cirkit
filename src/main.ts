@@ -9,6 +9,9 @@ type NodeType =
   | "LED"
   | "SPEAKER"
   | "DISPLAY"
+  | "NUMBER_DISPLAY"
+  | "GUIDE"
+  | "CABLE"
   | "CLOCK"
   | "BUFFER"
   | "KEY"
@@ -36,6 +39,14 @@ interface NodeData {
   speakerFrequencyHz?: number;
   displayWidth?: number;
   displayHeight?: number;
+  numberDigits?: number;
+  guideLength?: number;
+  cableChannels?: number;
+  cableLength?: number;
+  cableStartX?: number;
+  cableStartY?: number;
+  cableEndX?: number;
+  cableEndY?: number;
 }
 
 type PortKind = "input" | "output";
@@ -52,6 +63,7 @@ interface Wire {
 interface WireDragState {
   fromNodeId: number;
   fromPortId: string;
+  startKind: PortKind;
   startX: number;
   startY: number;
   pathEl: SVGPathElement;
@@ -67,6 +79,14 @@ interface NoteData {
   text: string;
 }
 
+interface ICCompactLayout {
+  inputColumns?: number;
+  outputColumns?: number;
+  portPitch?: number;
+  bodyHeight?: number;
+  nodeWidth?: number;
+}
+
 interface ICDefinition {
   id: number;
   name: string;
@@ -80,6 +100,16 @@ interface ICDefinition {
   inputNodeIds: number[];
   outputNodeIds: number[];
   ledNodeIds: number[];
+  paletteHidden?: boolean;
+  compactLayout?: ICCompactLayout;
+  builtinKind?: "snake_column" | "snake_status";
+  snakeGameId?: string;
+  snakeRowIndex?: number;
+  snakeColumnIndex?: number;
+  snakeGridWidth?: number;
+  snakeGridHeight?: number;
+  snakeCellScale?: number;
+  snakeTickMs?: number;
 }
 
 const GRID_SIZE = 24;
@@ -87,9 +117,33 @@ const DEFAULT_LIGHT_COLOR = "#27ae60";
 const DEFAULT_SPEAKER_FREQUENCY_HZ = 440;
 const MIN_SPEAKER_FREQUENCY_HZ = 60;
 const MAX_SPEAKER_FREQUENCY_HZ = 2000;
+const MAX_SPEAKER_PLAYBACK_FREQUENCY_HZ = 8000;
+const SPEAKER_INPUT_WEIGHTS = [1, 2, 4, 8] as const;
 const DEFAULT_DISPLAY_WIDTH = 4;
 const DEFAULT_DISPLAY_HEIGHT = 4;
 const MIN_DISPLAY_SIDE = 1;
+const NUMBER_DISPLAY_BITS_PER_DIGIT = 4;
+const DEFAULT_NUMBER_DISPLAY_DIGITS = 1;
+const MIN_NUMBER_DISPLAY_DIGITS = 1;
+const MAX_NUMBER_DISPLAY_DIGITS = 8;
+const DEFAULT_GUIDE_LENGTH = 5;
+const MIN_GUIDE_LENGTH = 2;
+const MAX_GUIDE_LENGTH = 16;
+const GUIDE_THICKNESS = 28;
+const GUIDE_SLOT_PITCH = GRID_SIZE;
+const GUIDE_SLOT_HOLE_SIZE = 12;
+const GUIDE_BODY_PADDING = 8;
+const DEFAULT_CABLE_CHANNELS = 4;
+const MIN_CABLE_CHANNELS = 1;
+const MAX_CABLE_CHANNELS = 12;
+const DEFAULT_CABLE_LENGTH = 168;
+const MIN_CABLE_LENGTH = 96;
+const MAX_CABLE_LENGTH = 720;
+const CABLE_END_WIDTH = 22;
+const CABLE_SOCKET_SIZE = 16;
+const CABLE_CHANNEL_PITCH = 22;
+const CABLE_PADDING_Y = 12;
+const CABLE_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#f59e0b"] as const;
 const DISPLAY_HEADER_HEIGHT = 24;
 const DISPLAY_BODY_PADDING_X = 12;
 const DISPLAY_BODY_PADDING_Y = 10;
@@ -103,6 +157,56 @@ const WORKSPACE_BASE_WIDTH = 3200;
 const WORKSPACE_BASE_HEIGHT = 6200;
 const MIN_WORKSPACE_ZOOM = 0.35;
 const MAX_WORKSPACE_ZOOM = 2.5;
+
+interface SpeakerLayout {
+  nodeWidth: number;
+  nodeHeight: number;
+  bodyHeight: number;
+  iconX: number;
+  iconY: number;
+  portPlacements: {
+    index: number;
+    x: number;
+    y: number;
+    label: string;
+    labelX: number;
+    labelY: number;
+    labelWeight: number;
+  }[];
+}
+
+function getSpeakerIconMarkup(variant: "workspace" | "palette" = "workspace"): string {
+  return `
+    <div class="speaker-icon speaker-icon-${variant}">
+      <div class="speaker-cabinet">
+        <div class="speaker-driver speaker-driver-small"></div>
+        <div class="speaker-driver speaker-driver-main"></div>
+      </div>
+      <div class="speaker-wave-stack" aria-hidden="true">
+        <span class="speaker-wave-band speaker-wave-band-1"></span>
+        <span class="speaker-wave-band speaker-wave-band-2"></span>
+        <span class="speaker-wave-band speaker-wave-band-3"></span>
+      </div>
+    </div>
+  `;
+}
+
+function getPaletteDisplayIconMarkup(): string {
+  const litPixels = new Set([0, 2, 5, 6, 8, 11]);
+  const pixels = Array.from({ length: 12 }, (_, index) => {
+    const isOn = litPixels.has(index) ? " is-on" : "";
+    return `<div class="palette-display-pixel${isOn}"></div>`;
+  }).join("");
+
+  return `
+    <div class="palette-display-icon" aria-hidden="true">
+      <div class="palette-display-shell">
+        <div class="palette-display-grid">${pixels}</div>
+      </div>
+      <div class="palette-display-stand"></div>
+    </div>
+  `;
+}
 
 function snapCoord(v: number): number {
   return Math.round(v / GRID_SIZE) * GRID_SIZE;
@@ -155,18 +259,77 @@ let mainWiresSnapshot: Wire[] | null = null;
 let mainNotesSnapshot: Map<number, NoteData> | null = null;
 
 let activePaletteDragNodeId: number | null = null;
+let activePaletteDragCreatedNode = false;
 let paletteDragPayload: { type?: NodeType; icId?: number } | null = null;
+let pendingCablePlacementId: number | null = null;
+let pendingCableAnchorX = 0;
+let pendingCableAnchorY = 0;
+let pendingIcToolboxPickResolve: ((def: ICDefinition | null) => void) | null = null;
 
-let icOutputValues = new Map<string, boolean>();
+let derivedPortValues = new Map<string, boolean>();
+
+type SpeakerVoice = {
+  oscillator: OscillatorNode;
+  gain: GainNode;
+};
+
+interface IcRuntimeState {
+  defId: number;
+  nodes: Map<number, NodeData>;
+  portOutputs: Map<string, boolean>;
+  wireStates: boolean[];
+  bufferLastInput: Map<number, boolean>;
+  bufferTimeouts: Map<number, Set<number>>;
+  clockTimers: Map<number, number>;
+  clockLastTickAt: Map<number, number>;
+}
+
+type SnakeDirection = "up" | "left" | "down" | "right";
+
+interface SnakeGameCell {
+  x: number;
+  y: number;
+}
+
+interface SnakeGameState {
+  gameId: string;
+  gridWidth: number;
+  gridHeight: number;
+  cellScale: number;
+  tickMs: number;
+  snake: SnakeGameCell[];
+  direction: SnakeDirection;
+  pendingDirection: SnakeDirection;
+  food: SnakeGameCell;
+  lastTickAt: number;
+  timerId: number | null;
+  gameOver: boolean;
+  foodPulseUntil: number;
+  crashPulseUntil: number;
+  score: number;
+  lastAdvancedEpoch: number;
+  lastInputEpoch: number;
+}
+
+interface IcSpeakerState {
+  key: string;
+  toneValue: number;
+  frequency: number;
+}
 
 // dynamic behaviours
 const clockTimers = new Map<number, number>();
+const clockLastTickAt = new Map<number, number>();
 const bufferLastInput = new Map<number, boolean>();
 const bufferTimeouts = new Map<number, Set<number>>();
-const speakerVoices = new Map<
-  number,
-  { oscillator: OscillatorNode; gain: GainNode }
->();
+const speakerVoices = new Map<number, SpeakerVoice>();
+const icSpeakerVoices = new Map<string, SpeakerVoice>();
+const icRuntimeStates = new Map<string, IcRuntimeState>();
+const snakeGameStates = new Map<string, SnakeGameState>();
+const workspaceIcResults = new Map<number, ICResult>();
+let pendingSignalRecomputeFrame: number | null = null;
+let pendingSignalRecomputeTimeout: number | null = null;
+let signalRecomputeEpoch = 0;
 
 let audioContext: AudioContext | null = null;
 
@@ -181,6 +344,8 @@ let previewMode = false;
 let workspaceZoom = 1;
 let deferWireRendering = false;
 let wireGeometryDirty = true;
+let pendingWireRenderFrame: number | null = null;
+let pendingWireRenderForceGeometry = false;
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 
@@ -189,148 +354,191 @@ app.innerHTML = `
     <aside class="sidebar">
       <h1 class="logo">CIRKIT</h1>
       <div class="palette">
-        <!-- SOURCES -->
-        <button class="palette-item" data-node-type="POWER">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">POWER</span></div>
-            <div class="node-body"><div class="power-icon"></div></div>
-          </div>
-        </button>
-        <button class="palette-item" data-node-type="SWITCH">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">SWITCH</span></div>
-            <div class="node-body">
-              <div class="switch-shell"><div class="switch-knob"></div></div>
-            </div>
-          </div>
-        </button>
-   <button class="palette-item" data-node-type="BUTTON">
-  <div class="palette-node">
-    <div class="node-header"><span class="node-title">BUTTON</span></div>
-    <div class="node-body">
-      <div class="switch-shell"><div class="switch-knob"></div></div>
-    </div>
-  </div>
-</button>
-
-        <button class="palette-item" data-node-type="KEY">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">KEY</span></div>
-            <div class="node-body">
-              <div class="keycap"></div>
-            </div>
-          </div>
-        </button>
-
-        <!-- OUTPUTS -->
-        <button class="palette-item" data-node-type="OUTPUT">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">OUTPUT</span></div>
-            <div class="node-body">
-              <div class="output-lamp"><div class="output-core"></div></div>
-            </div>
-          </div>
-        </button>
-        <button class="palette-item" data-node-type="LED">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">LED</span></div>
-            <div class="node-body">
-              <div class="output-lamp"><div class="output-core"></div></div>
-            </div>
-          </div>
-        </button>
-        <button class="palette-item" data-node-type="SPEAKER">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">SPEAKER</span></div>
-            <div class="node-body">
-              <div class="speaker-icon">
-                <div class="speaker-box"></div>
-                <div class="speaker-cone"></div>
-                <div class="speaker-wave speaker-wave-1"></div>
-                <div class="speaker-wave speaker-wave-2"></div>
+        <section class="palette-section">
+          <div class="palette-section-title">Input</div>
+          <div class="palette-section-grid">
+            <button class="palette-item" data-node-type="POWER">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">POWER</span></div>
+                <div class="node-body"><div class="power-icon"></div></div>
               </div>
-            </div>
-          </div>
-        </button>
-        <button class="palette-item" data-node-type="DISPLAY">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">DISPLAY</span></div>
-            <div class="node-body">
-              <div class="palette-display-icon">
-                <div class="palette-display-pixel is-on"></div>
-                <div class="palette-display-pixel"></div>
-                <div class="palette-display-pixel is-on"></div>
-                <div class="palette-display-pixel"></div>
-                <div class="palette-display-pixel is-on"></div>
-                <div class="palette-display-pixel"></div>
-                <div class="palette-display-pixel"></div>
-                <div class="palette-display-pixel is-on"></div>
-                <div class="palette-display-pixel"></div>
-                <div class="palette-display-pixel"></div>
-                <div class="palette-display-pixel is-on"></div>
-                <div class="palette-display-pixel"></div>
+            </button>
+            <button class="palette-item" data-node-type="SWITCH">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">SWITCH</span></div>
+                <div class="node-body">
+                  <div class="switch-shell"><div class="switch-knob"></div></div>
+                </div>
               </div>
-            </div>
+            </button>
+            <button class="palette-item" data-node-type="BUTTON">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">BUTTON</span></div>
+                <div class="node-body">
+                  <div class="switch-shell"><div class="switch-knob"></div></div>
+                </div>
+              </div>
+            </button>
+            <button class="palette-item" data-node-type="KEY">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">KEY</span></div>
+                <div class="node-body">
+                  <div class="keycap"></div>
+                </div>
+              </div>
+            </button>
           </div>
-        </button>
+        </section>
 
-        <!-- TIMING -->
-        <button class="palette-item" data-node-type="CLOCK">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">CLOCK</span></div>
-            <div class="node-body"><div class="clock-icon"></div></div>
+        <section class="palette-section">
+          <div class="palette-section-title">Output</div>
+          <div class="palette-section-grid">
+            <button class="palette-item" data-node-type="OUTPUT">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">OUTPUT</span></div>
+                <div class="node-body">
+                  <div class="output-lamp"><div class="output-core"></div></div>
+                </div>
+              </div>
+            </button>
+            <button class="palette-item" data-node-type="LED">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">LED</span></div>
+                <div class="node-body">
+                  <div class="output-lamp"><div class="output-core"></div></div>
+                </div>
+              </div>
+            </button>
+            <button class="palette-item" data-node-type="SPEAKER">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">SPEAKER</span></div>
+                <div class="node-body">
+                  ${getSpeakerIconMarkup("palette")}
+                </div>
+              </div>
+            </button>
+            <button class="palette-item" data-node-type="DISPLAY">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">DISPLAY</span></div>
+                <div class="node-body">
+                  ${getPaletteDisplayIconMarkup()}
+                </div>
+              </div>
+            </button>
+            <button class="palette-item" data-node-type="NUMBER_DISPLAY">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">NUMBER</span></div>
+                <div class="node-body">
+                  <div class="palette-number-icon">
+                    <div class="palette-number-digit">8</div>
+                  </div>
+                </div>
+              </div>
+            </button>
           </div>
-        </button>
-        <button class="palette-item" data-node-type="BUFFER">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">BUFFER</span></div>
-            <div class="node-body"><div class="gate-shape gate-buffer"></div></div>
-          </div>
-        </button>
+        </section>
 
-        <!-- LOGIC -->
-        <button class="palette-item" data-node-type="AND">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">AND</span></div>
-            <div class="node-body"><div class="gate-shape gate-and"></div></div>
+        <section class="palette-section">
+          <div class="palette-section-title">Timing</div>
+          <div class="palette-section-grid">
+            <button class="palette-item" data-node-type="CLOCK">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">CLOCK</span></div>
+                <div class="node-body"><div class="clock-icon"></div></div>
+              </div>
+            </button>
           </div>
-        </button>
-        <button class="palette-item" data-node-type="OR">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">OR</span></div>
-            <div class="node-body"><div class="gate-shape gate-or"></div></div>
+        </section>
+
+        <section class="palette-section">
+          <div class="palette-section-title">Logic Gates</div>
+          <div class="palette-section-grid">
+            <button class="palette-item" data-node-type="BUFFER">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">BUFFER</span></div>
+                <div class="node-body"><div class="gate-shape gate-buffer"></div></div>
+              </div>
+            </button>
+            <button class="palette-item" data-node-type="AND">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">AND</span></div>
+                <div class="node-body"><div class="gate-shape gate-and"></div></div>
+              </div>
+            </button>
+            <button class="palette-item" data-node-type="OR">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">OR</span></div>
+                <div class="node-body"><div class="gate-shape gate-or"></div></div>
+              </div>
+            </button>
+            <button class="palette-item" data-node-type="NAND">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">NAND</span></div>
+                <div class="node-body"><div class="gate-shape gate-nand"></div></div>
+              </div>
+            </button>
+            <button class="palette-item" data-node-type="NOR">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">NOR</span></div>
+                <div class="node-body"><div class="gate-shape gate-nor"></div></div>
+              </div>
+            </button>
+            <button class="palette-item" data-node-type="XOR">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">XOR</span></div>
+                <div class="node-body"><div class="gate-shape gate-xor"></div></div>
+              </div>
+            </button>
+            <button class="palette-item" data-node-type="NOT">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">NOT</span></div>
+                <div class="node-body"><div class="gate-shape gate-not"></div></div>
+              </div>
+            </button>
           </div>
-        </button>
-        <button class="palette-item" data-node-type="NAND">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">NAND</span></div>
-            <div class="node-body"><div class="gate-shape gate-nand"></div></div>
+        </section>
+
+        <section class="palette-section">
+          <div class="palette-section-title">Organization</div>
+          <div class="palette-section-grid">
+            <button class="palette-item" data-node-type="GUIDE">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">GUIDE</span></div>
+                <div class="node-body">
+                  <div class="palette-guide-icon">
+                    <span class="palette-guide-hole"></span>
+                    <span class="palette-guide-hole"></span>
+                    <span class="palette-guide-hole"></span>
+                    <span class="palette-guide-hole"></span>
+                  </div>
+                </div>
+              </div>
+            </button>
+            <button class="palette-item" data-node-type="CABLE">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">CABLE</span></div>
+                <div class="node-body">
+                  <div class="palette-cable-icon">
+                    <div class="palette-cable-lane" style="--lane-color:#ef4444;"></div>
+                    <div class="palette-cable-lane" style="--lane-color:#3b82f6;"></div>
+                    <div class="palette-cable-lane" style="--lane-color:#22c55e;"></div>
+                    <div class="palette-cable-lane" style="--lane-color:#f59e0b;"></div>
+                  </div>
+                </div>
+              </div>
+            </button>
           </div>
-        </button>
-        <button class="palette-item" data-node-type="NOR">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">NOR</span></div>
-            <div class="node-body"><div class="gate-shape gate-nor"></div></div>
-          </div>
-        </button>
-        <button class="palette-item" data-node-type="XOR">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">XOR</span></div>
-            <div class="node-body"><div class="gate-shape gate-xor"></div></div>
-          </div>
-        </button>
-        <button class="palette-item" data-node-type="NOT">
-          <div class="palette-node">
-            <div class="node-header"><span class="node-title">NOT</span></div>
-            <div class="node-body"><div class="gate-shape gate-not"></div></div>
-          </div>
-        </button>
-        <!-- IC palette items appended here -->
+        </section>
+
+        <section class="palette-section palette-section-custom-ic" hidden>
+          <div class="palette-section-title">Custom ICs</div>
+          <div class="palette-section-grid palette-section-grid-ics"></div>
+        </section>
       </div>
     </aside>
     <main class="workspace-wrapper">
       <div class="top-toolbar">
-        <button class="preview-toggle" type="button" title="Run the circuit / enable key inputs">Simulate: OFF</button>
+        <button class="preview-toggle" type="button" title="Switch between editing and viewing mode">Mode: Editing</button>
         <div class="toolbar-spacer"></div>
         <button class="tutorial-button" type="button" title="Open an interactive tutorial in a new tab">Open Tutorial</button>
         <button class="save-button" type="button" title="Download a .json save file to your computer">Download File</button>
@@ -352,7 +560,22 @@ const workspaceZoomShell =
   document.querySelector<HTMLDivElement>("#workspace-zoom-shell")!;
 const workspace = document.querySelector<HTMLDivElement>("#workspace")!;
 const wireLayer = document.querySelector<SVGSVGElement>("#wire-layer")!;
+const sidebar = document.querySelector<HTMLDivElement>(".sidebar")!;
 const palette = document.querySelector<HTMLDivElement>(".palette")!;
+const paletteCustomIcSection =
+  palette.querySelector<HTMLElement>(".palette-section-custom-ic")!;
+const paletteIcGrid =
+  palette.querySelector<HTMLDivElement>(".palette-section-grid-ics")!;
+const paletteUploadBanner = document.createElement("div");
+paletteUploadBanner.className = "palette-upload-banner";
+paletteUploadBanner.hidden = true;
+paletteUploadBanner.innerHTML = `
+  <div class="palette-upload-copy">Select an IC from the left column to upload it.</div>
+  <button type="button" class="palette-upload-cancel">Cancel</button>
+`;
+palette.insertAdjacentElement("beforebegin", paletteUploadBanner);
+const paletteUploadCancelBtn =
+  paletteUploadBanner.querySelector<HTMLButtonElement>(".palette-upload-cancel")!;
 const previewToggle =
   document.querySelector<HTMLButtonElement>(".preview-toggle")!;
 const zoomResetButton =
@@ -376,13 +599,30 @@ editingIndicator.style.color = "#6b7280";
 editingIndicator.style.userSelect = "none";
 editingIndicator.textContent = ""; // hidden/blank by default
 
+const icEditToolbar = document.createElement("div");
+icEditToolbar.className = "ic-edit-toolbar";
+icEditToolbar.hidden = true;
+icEditToolbar.innerHTML = `
+  <span class="ic-edit-toolbar-title"></span>
+  <span class="ic-edit-toolbar-note">Changes here affect every copy of this IC already on the board.</span>
+  <button type="button" class="ic-edit-toolbar-rename">Rename</button>
+  <button type="button" class="ic-edit-toolbar-done">Done</button>
+`;
+const icEditToolbarTitle =
+  icEditToolbar.querySelector<HTMLSpanElement>(".ic-edit-toolbar-title")!;
+const icEditToolbarRename =
+  icEditToolbar.querySelector<HTMLButtonElement>(".ic-edit-toolbar-rename")!;
+const icEditToolbarDone =
+  icEditToolbar.querySelector<HTMLButtonElement>(".ic-edit-toolbar-done")!;
+
 const unsavedWarning = document.createElement("div");
 unsavedWarning.className = "unsaved-warning";
 unsavedWarning.hidden = true;
 
 // put it right after the simulate button
 previewToggle.insertAdjacentElement("afterend", editingIndicator);
-editingIndicator.insertAdjacentElement("afterend", unsavedWarning);
+editingIndicator.insertAdjacentElement("afterend", icEditToolbar);
+icEditToolbar.insertAdjacentElement("afterend", unsavedWarning);
 
 function setEditingLabel(title: string | null) {
   if (!title) {
@@ -391,6 +631,31 @@ function setEditingLabel(title: string | null) {
   }
   editingIndicator.textContent = `Editing: ${title}`;
 }
+
+function setIcEditToolbar(def: ICDefinition | null) {
+  if (!def) {
+    icEditToolbar.hidden = true;
+    icEditToolbarTitle.textContent = "";
+    return;
+  }
+  icEditToolbar.hidden = false;
+  icEditToolbarTitle.textContent = `Editing: ${def.name}`;
+}
+
+icEditToolbarDone.addEventListener("click", () => {
+  exitICEdit();
+});
+
+icEditToolbarRename.addEventListener("click", () => {
+  if (editingICId == null) return;
+  const def = icDefinitions.find((item) => item.id === editingICId);
+  if (!def) return;
+  void renameICDefinition(def);
+});
+
+paletteUploadCancelBtn.addEventListener("click", () => {
+  resolvePendingIcToolboxPick(null);
+});
 
 let workspaceDirty = false;
 
@@ -419,16 +684,200 @@ function updateUnsavedWarning() {
 function markWorkspaceChanged() {
   workspaceDirty = true;
   updateUnsavedWarning();
+  scheduleWorkspaceDraftAutosave();
 }
 
 function clearWorkspaceChanged() {
   workspaceDirty = false;
+  if (draftAutosaveTimeoutId != null) {
+    window.clearTimeout(draftAutosaveTimeoutId);
+    draftAutosaveTimeoutId = null;
+  }
   updateUnsavedWarning();
+}
+
+function invalidateWorkspaceDraftAutosaveCache() {
+  lastDraftAutosaveKey = "";
+}
+
+function getWorkspaceDraftPayload():
+  | {
+      title: string;
+      visibility: "private" | "preview" | "open";
+      data: SaveFileV1;
+      cacheKey: string;
+    }
+  | null {
+  if (!currentUser || mode === "ic-edit" || !workspaceDirty || !hasWorkspaceContent()) {
+    return null;
+  }
+
+  const title = (currentCircuitTitle || "Untitled").trim() || "Untitled";
+  const visibility = currentCircuitVisibility || "private";
+  const data = makeSaveObject();
+  return {
+    title,
+    visibility,
+    data,
+    cacheKey: JSON.stringify({ title, visibility, data }),
+  };
+}
+
+async function saveWorkspaceDraft(force = false) {
+  const payload = getWorkspaceDraftPayload();
+  if (!payload) return false;
+  if (!force && payload.cacheKey === lastDraftAutosaveKey) return false;
+
+  if (draftAutosaveInFlight) {
+    queuedDraftAutosave = true;
+    return false;
+  }
+
+  draftAutosaveInFlight = true;
+  try {
+    await api<ServerWorkspaceDraft>("/api/workspace-draft", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: payload.title,
+        visibility: payload.visibility,
+        data: payload.data,
+      }),
+    });
+    lastDraftAutosaveKey = payload.cacheKey;
+    return true;
+  } catch (err) {
+    console.error("Failed to autosave temp workspace", err);
+    return false;
+  } finally {
+    draftAutosaveInFlight = false;
+    if (queuedDraftAutosave) {
+      queuedDraftAutosave = false;
+      void saveWorkspaceDraft();
+    }
+  }
+}
+
+function scheduleWorkspaceDraftAutosave(delayMs = TEMP_WORKSPACE_AUTOSAVE_DELAY_MS) {
+  if (!currentUser) return;
+  if (draftAutosaveTimeoutId != null) {
+    window.clearTimeout(draftAutosaveTimeoutId);
+  }
+  draftAutosaveTimeoutId = window.setTimeout(() => {
+    draftAutosaveTimeoutId = null;
+    void saveWorkspaceDraft();
+  }, delayMs);
+}
+
+async function deleteWorkspaceDraft() {
+  invalidateWorkspaceDraftAutosaveCache();
+  if (!currentUser) return;
+  try {
+    await api<{ ok: boolean }>("/api/workspace-draft", { method: "DELETE" });
+  } catch (err) {
+    console.error("Failed to delete temp workspace", err);
+  }
+}
+
+function saveWorkspaceDraftOnLeave() {
+  const payload = getWorkspaceDraftPayload();
+  if (!payload) return;
+  void fetch(API_BASE + "/workspace-draft", {
+    method: "PUT",
+    credentials: "include",
+    keepalive: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: payload.title,
+      visibility: payload.visibility,
+      data: payload.data,
+    }),
+  }).catch(() => {});
+}
+
+function restoreWorkspaceDraft(draft: ServerWorkspaceDraft) {
+  loadFromObject(draft.data);
+  currentCircuitTitle = draft.title;
+  currentCircuitVisibility = draft.visibility;
+  setEditingLabel(null);
+  setPreviewMode(false);
+  hideContextMenu();
+  clearSelection();
+  workspaceDirty = true;
+  updateUnsavedWarning();
+  invalidateWorkspaceDraftAutosaveCache();
+  scheduleWorkspaceDraftAutosave(1500);
+}
+
+function formatDraftUpdatedAt(timestamp: number): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "recently";
+  return date.toLocaleString();
+}
+
+async function maybePromptWorkspaceDraftRestore() {
+  if (!currentUser || workspaceDraftPromptShown) return;
+  workspaceDraftPromptShown = true;
+
+  await startupContentReady.catch(() => {});
+
+  let draft: ServerWorkspaceDraft;
+  try {
+    draft = await api<ServerWorkspaceDraft>("/api/workspace-draft");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    if (
+      message &&
+      !message.toLowerCase().includes("not found") &&
+      !message.toLowerCase().includes("not logged in") &&
+      !message.toLowerCase().includes("invalid session")
+    ) {
+      console.error("Failed to load temp workspace", err);
+    }
+    return;
+  }
+
+  const m = showModal({
+    title: "Temp Workspace Found",
+    bodyHTML: `
+      <div style="display:grid;gap:10px;">
+        <div style="font-size:13px;line-height:1.45;color:#334155;">
+          We found an unsaved temp workspace from <b>${escapeHtml(formatDraftUpdatedAt(draft.updatedAt))}</b>.
+        </div>
+        <div style="font-size:12px;line-height:1.4;color:#64748b;">
+          Open it to keep working, or delete it if you do not need it anymore.
+        </div>
+      </div>
+    `,
+  });
+
+  m.setButtons([
+    { label: "Keep for Later", kind: "ghost", onClick: ({ close }) => close() },
+    {
+      label: "Delete Temp File",
+      kind: "danger",
+      onClick: async ({ close }) => {
+        await deleteWorkspaceDraft();
+        close();
+        toast("Temp workspace deleted.");
+      },
+    },
+    {
+      label: "Open Temp File",
+      kind: "primary",
+      onClick: async ({ close }) => {
+        restoreWorkspaceDraft(draft);
+        close();
+        await deleteWorkspaceDraft();
+        toast("Temp workspace restored.");
+      },
+    },
+  ]);
 }
 
 function setPreviewMode(nextPreviewMode: boolean) {
   previewMode = nextPreviewMode;
-  previewToggle.textContent = previewMode ? "Simulate: ON" : "Simulate: OFF";
+  previewToggle.textContent = previewMode ? "Mode: Viewing" : "Mode: Editing";
 }
 
 function workspaceCoordsFromClientPoint(
@@ -472,22 +921,102 @@ function getNodeRotation(node: Pick<NodeData, "rotation">): number {
   return normalized;
 }
 
-function getNodeLayoutSize(node: Pick<NodeData, "type" | "icDefId" | "displayWidth" | "displayHeight">): {
+function getIcNodeLayout(def?: ICDefinition): {
+  nodeWidth: number;
+  bodyHeight: number;
+  previewWidth: number;
+  previewHeight: number;
+} {
+  const inCount = def?.inputNodeIds.length ?? 0;
+  const outCount = def?.outputNodeIds.length ?? 0;
+  const nameLength = (def?.name.trim().length ?? 6) || 6;
+  const portPitch = Math.max(8, def?.compactLayout?.portPitch ?? 18);
+  const previewWidth = 116;
+  const previewHeight = 72;
+  const rows = Math.max(inCount, outCount, 1);
+  const portSpan = Math.max(0, rows - 1) * portPitch;
+  const computedBodyHeight = 84 + portSpan;
+  const bodyHeight = clamp(
+    Math.max(computedBodyHeight, def?.compactLayout?.bodyHeight ?? 0),
+    84,
+    2400
+  );
+  const nodeWidth = clamp(
+    def?.compactLayout?.nodeWidth ?? 152 + Math.max(0, nameLength - 6) * 6,
+    20,
+    480
+  );
+
+  return {
+    nodeWidth,
+    bodyHeight,
+    previewWidth,
+    previewHeight,
+  };
+}
+
+function getIcPortPlacement(
+  def: ICDefinition | undefined,
+  role: "in" | "out",
+  index: number
+): { x: number; y: number } {
+  const layout = getIcNodeLayout(def);
+  const count = role === "in" ? def?.inputNodeIds.length ?? 0 : def?.outputNodeIds.length ?? 0;
+  const portPitch = Math.max(8, def?.compactLayout?.portPitch ?? 18);
+  const portSpan = Math.max(0, count - 1) * portPitch;
+  const topPad = (layout.bodyHeight - portSpan) / 2;
+  return {
+    x: role === "in" ? 0 : layout.nodeWidth,
+    y: count <= 1 ? layout.bodyHeight / 2 : topPad + index * portPitch,
+  };
+}
+
+function getNodeLayoutSize(
+  node: Pick<
+    NodeData,
+    | "type"
+    | "icDefId"
+    | "displayWidth"
+    | "displayHeight"
+    | "numberDigits"
+    | "guideLength"
+    | "cableChannels"
+    | "cableLength"
+    | "x"
+    | "y"
+    | "cableStartX"
+    | "cableStartY"
+    | "cableEndX"
+    | "cableEndY"
+  >
+): {
   w: number;
   h: number;
 } {
   if (node.type === "IC") {
     const def = node.icDefId != null ? icDefinitions.find((d) => d.id === node.icDefId) : undefined;
-    const inCount = def?.inputNodeIds.length ?? 0;
-    const outCount = def?.outputNodeIds.length ?? 0;
-    const ledCount = def?.ledNodeIds.length ?? 0;
-    const rows = Math.max(inCount, outCount, ledCount, 1);
-    const bodyHeight = Math.max(40, rows * 18 + 8);
-    return { w: 140, h: 24 + bodyHeight };
+    const layout = getIcNodeLayout(def);
+    return { w: layout.nodeWidth, h: layout.bodyHeight };
   }
   if (node.type === "DISPLAY") {
     const layout = getDisplayLayout(node);
     return { w: layout.nodeWidth, h: layout.nodeHeight };
+  }
+  if (node.type === "SPEAKER") {
+    const layout = getSpeakerLayout();
+    return { w: layout.nodeWidth, h: layout.nodeHeight };
+  }
+  if (node.type === "NUMBER_DISPLAY") {
+    const layout = getNumberDisplayLayout(node);
+    return { w: layout.nodeWidth, h: layout.nodeHeight };
+  }
+  if (node.type === "GUIDE") {
+    const layout = getGuideLayout(node);
+    return { w: layout.width, h: layout.height };
+  }
+  if (node.type === "CABLE") {
+    const geometry = getCableGeometry(node);
+    return { w: geometry.width, h: geometry.height };
   }
   return { w: 120, h: 64 };
 }
@@ -545,6 +1074,17 @@ function markWireGeometryDirty() {
   wireGeometryDirty = true;
 }
 
+function scheduleWireRender(forceGeometry = false) {
+  if (forceGeometry) pendingWireRenderForceGeometry = true;
+  if (pendingWireRenderFrame != null) return;
+  pendingWireRenderFrame = window.requestAnimationFrame(() => {
+    const nextForceGeometry = pendingWireRenderForceGeometry;
+    pendingWireRenderFrame = null;
+    pendingWireRenderForceGeometry = false;
+    renderAllWires(nextForceGeometry);
+  });
+}
+
 function withDeferredWireRendering(fn: () => void) {
   const prev = deferWireRendering;
   deferWireRendering = true;
@@ -559,6 +1099,11 @@ function withDeferredWireRendering(fn: () => void) {
 }
 
 function clearCachedWorkspaceDom() {
+  if (pendingWireRenderFrame != null) {
+    window.cancelAnimationFrame(pendingWireRenderFrame);
+    pendingWireRenderFrame = null;
+    pendingWireRenderForceGeometry = false;
+  }
   nodeElements.clear();
   portElements.clear();
   wirePathElements.clear();
@@ -573,11 +1118,126 @@ function applyNodeTransform(el: HTMLDivElement, node: NodeData) {
   el.style.transform = `translate(${node.x}px, ${node.y}px) rotate(${rotation}deg)`;
 }
 
+function updateCableNodeGeometry(node: NodeData, el?: HTMLDivElement | null): CableGeometry {
+  if (node.type !== "CABLE") {
+    throw new Error("updateCableNodeGeometry called for non-cable node");
+  }
+
+  const geometry = syncCableBounds(node);
+  const cableEl =
+    el ??
+    nodeElements.get(node.id) ??
+    workspace.querySelector<HTMLDivElement>(`[data-node-id="${node.id}"]`) ??
+    null;
+  if (!cableEl) return geometry;
+
+  cableEl.style.width = `${geometry.width}px`;
+  cableEl.style.height = `${geometry.height}px`;
+
+  const body = cableEl.querySelector<HTMLDivElement>(".cable-body");
+  if (body) {
+    body.style.width = `${geometry.width}px`;
+    body.style.height = `${geometry.height}px`;
+  }
+
+  const svg = cableEl.querySelector<SVGSVGElement>(".cable-lanes-svg");
+  if (svg) {
+    svg.setAttribute("viewBox", `0 0 ${geometry.width} ${geometry.height}`);
+    const laneEls = Array.from(svg.querySelectorAll<SVGLineElement>(".cable-lane-line"));
+    laneEls.forEach((laneEl, channel) => {
+      const rowOffset = geometry.rowOffsets[channel] ?? 0;
+      laneEl.setAttribute("x1", String(geometry.startLocalX));
+      laneEl.setAttribute("y1", String(geometry.startLocalY + rowOffset));
+      laneEl.setAttribute("x2", String(geometry.endLocalX));
+      laneEl.setAttribute("y2", String(geometry.endLocalY + rowOffset));
+    });
+  }
+
+  (["left", "right"] as CableSide[]).forEach((side) => {
+    for (let channel = 0; channel < geometry.channels; channel++) {
+      const rowOffset = geometry.rowOffsets[channel] ?? 0;
+      const socketX = side === "left" ? geometry.startLocalX : geometry.endLocalX;
+      const socketY = (side === "left" ? geometry.startLocalY : geometry.endLocalY) + rowOffset;
+
+      const socket = cableEl.querySelector<HTMLDivElement>(
+        `.cable-socket[data-side="${side}"][data-channel="${channel}"]`
+      );
+      if (socket) {
+        socket.style.left = `${socketX}px`;
+        socket.style.top = `${socketY}px`;
+      }
+
+      const inputPort = cableEl.querySelector<HTMLDivElement>(
+        `.node-port-input[data-port-id="${getCablePortId(node.id, "in", side, channel)}"]`
+      );
+      if (inputPort) {
+        inputPort.style.left = `${socketX}px`;
+        inputPort.style.top = `${socketY}px`;
+      }
+
+      const outputPort = cableEl.querySelector<HTMLDivElement>(
+        `.node-port-output[data-port-id="${getCablePortId(node.id, "out", side, channel)}"]`
+      );
+      if (outputPort) {
+        outputPort.style.left = `${socketX}px`;
+        outputPort.style.top = `${socketY}px`;
+      }
+    }
+  });
+
+  const startHandle = cableEl.querySelector<HTMLDivElement>(".cable-end-block-start");
+  if (startHandle) {
+    startHandle.style.left = `${geometry.startLocalX}px`;
+    startHandle.style.top = `${geometry.startLocalY}px`;
+    startHandle.style.height = `${geometry.bodyHeight}px`;
+  }
+
+  const endHandle = cableEl.querySelector<HTMLDivElement>(".cable-end-block-end");
+  if (endHandle) {
+    endHandle.style.left = `${geometry.endLocalX}px`;
+    endHandle.style.top = `${geometry.endLocalY}px`;
+    endHandle.style.height = `${geometry.bodyHeight}px`;
+  }
+
+  applyNodeTransform(cableEl, node);
+  return geometry;
+}
+
 applyWorkspaceZoom();
 
 function getSpeakerFrequency(node: Pick<NodeData, "speakerFrequencyHz">): number {
   const raw = node.speakerFrequencyHz ?? DEFAULT_SPEAKER_FREQUENCY_HZ;
   return clamp(Math.round(raw), MIN_SPEAKER_FREQUENCY_HZ, MAX_SPEAKER_FREQUENCY_HZ);
+}
+
+function getSpeakerLayout(): SpeakerLayout {
+  const nodeWidth = 136;
+  const bodyHeight = 58;
+  const portStartX = 16;
+  const portGap = 24;
+  const portY = 10;
+  const labelY = 22;
+
+  return {
+    nodeWidth,
+    nodeHeight: DISPLAY_HEADER_HEIGHT + bodyHeight,
+    bodyHeight,
+    iconX: 27,
+    iconY: 24,
+    portPlacements: SPEAKER_INPUT_WEIGHTS.map((weight, index) => ({
+      index,
+      x: portStartX + index * portGap,
+      y: portY,
+      label: String(weight),
+      labelX: portStartX + index * portGap,
+      labelY,
+      labelWeight: weight,
+    })),
+  };
+}
+
+function getSpeakerPortId(nodeId: number, index: number): string {
+  return `${nodeId}:in:${index}`;
 }
 
 function getDisplaySize(
@@ -608,6 +1268,32 @@ interface DisplayLayout {
   nodeHeight: number;
   inputOffsetY: number;
   screenOffsetY: number;
+}
+
+interface NumberDisplayLayout {
+  digits: number;
+  inputCount: number;
+  digitWidth: number;
+  digitHeight: number;
+  digitGap: number;
+  groupWidth: number;
+  groupGap: number;
+  screenWidth: number;
+  screenHeight: number;
+  nodeWidth: number;
+  nodeHeight: number;
+  bodyHeight: number;
+  digitPositions: { x: number; y: number }[];
+  portPlacements: {
+    index: number;
+    x: number;
+    y: number;
+    label: string;
+    labelX: number;
+    labelY: number;
+    labelPosition: "above" | "below";
+    labelWeight: number;
+  }[];
 }
 
 function getDisplayLayout(node: Pick<NodeData, "displayWidth" | "displayHeight">): DisplayLayout {
@@ -643,7 +1329,366 @@ function getDisplayLayout(node: Pick<NodeData, "displayWidth" | "displayHeight">
   };
 }
 
+function getNumberDisplayDigits(node: Pick<NodeData, "numberDigits">): number {
+  const raw = Math.round(node.numberDigits ?? DEFAULT_NUMBER_DISPLAY_DIGITS);
+  return clamp(raw, MIN_NUMBER_DISPLAY_DIGITS, MAX_NUMBER_DISPLAY_DIGITS);
+}
+
+function getNumberDisplayInputCount(node: Pick<NodeData, "numberDigits">): number {
+  return getNumberDisplayDigits(node) * NUMBER_DISPLAY_BITS_PER_DIGIT;
+}
+
+function getNumberDisplayBitWeight(_digits: number, index: number): number {
+  const digitIndex = Math.floor(index / NUMBER_DISPLAY_BITS_PER_DIGIT);
+  const localBitIndex = index % NUMBER_DISPLAY_BITS_PER_DIGIT;
+  const power = digitIndex * NUMBER_DISPLAY_BITS_PER_DIGIT + localBitIndex;
+  return 2 ** power;
+}
+
+function formatNumberDisplayBitWeight(weight: number): string {
+  const units = ["", "K", "M", "G", "T"];
+  let scaled = weight;
+  let unitIndex = 0;
+  while (scaled >= 1024 && scaled % 1024 === 0 && unitIndex < units.length - 1) {
+    scaled /= 1024;
+    unitIndex++;
+  }
+  return `${scaled}${units[unitIndex]}`;
+}
+
+function getNumberDisplayLayout(
+  node: Pick<NodeData, "numberDigits">
+): NumberDisplayLayout {
+  const digits = getNumberDisplayDigits(node);
+  const inputCount = getNumberDisplayInputCount(node);
+  const digitWidth = 24;
+  const digitHeight = 36;
+  const digitGap = 4;
+  const groupWidth = 72;
+  const groupGap = 8;
+  const bodyHeight = 76;
+  const bodyPaddingX = 12;
+  const upperY = 18;
+  const lowerY = bodyHeight - 18;
+  const digitY = Math.round((bodyHeight - digitHeight) / 2);
+  const digitX = Math.round((groupWidth - digitWidth) / 2);
+  const screenWidth = digits * groupWidth + Math.max(0, digits - 1) * groupGap;
+  const screenHeight = digitHeight;
+
+  const digitPositions = Array.from({ length: digits }, (_, digitIndex) => ({
+    x: bodyPaddingX + digitIndex * (groupWidth + groupGap) + digitX,
+    y: digitY,
+  }));
+
+  const portPlacements = Array.from({ length: digits }, (_, digitIndex) => {
+    const groupLeft = bodyPaddingX + digitIndex * (groupWidth + groupGap);
+    const baseIndex = digitIndex * NUMBER_DISPLAY_BITS_PER_DIGIT;
+    return [
+      {
+        index: baseIndex + 0,
+        x: groupLeft + 18,
+        y: upperY,
+        labelX: groupLeft + 18,
+        labelY: upperY - 9,
+        labelPosition: "above" as const,
+      },
+      {
+        index: baseIndex + 1,
+        x: groupLeft + groupWidth - 18,
+        y: upperY,
+        labelX: groupLeft + groupWidth - 18,
+        labelY: upperY - 9,
+        labelPosition: "above" as const,
+      },
+      {
+        index: baseIndex + 2,
+        x: groupLeft + 18,
+        y: lowerY,
+        labelX: groupLeft + 18,
+        labelY: lowerY + 9,
+        labelPosition: "below" as const,
+      },
+      {
+        index: baseIndex + 3,
+        x: groupLeft + groupWidth - 18,
+        y: lowerY,
+        labelX: groupLeft + groupWidth - 18,
+        labelY: lowerY + 9,
+        labelPosition: "below" as const,
+      },
+    ].map((placement) => {
+      const weight = getNumberDisplayBitWeight(digits, placement.index);
+      return {
+        ...placement,
+        label: formatNumberDisplayBitWeight(weight),
+        labelWeight: weight,
+      };
+    });
+  }).flat();
+
+  return {
+    digits,
+    inputCount,
+    digitWidth,
+    digitHeight,
+    digitGap,
+    groupWidth,
+    groupGap,
+    screenWidth,
+    screenHeight,
+    nodeWidth: Math.max(108, screenWidth + bodyPaddingX * 2),
+    nodeHeight: DISPLAY_HEADER_HEIGHT + bodyHeight,
+    bodyHeight,
+    digitPositions,
+    portPlacements,
+  };
+}
+
+interface GuideLayout {
+  slotCount: number;
+  width: number;
+  height: number;
+  slotCenters: number[];
+}
+
+type CableSide = "left" | "right";
+
+interface CableLayout {
+  channels: number;
+  bodyHeight: number;
+  rowOffsets: number[];
+}
+
+interface CableGeometry extends CableLayout {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  startLocalX: number;
+  startLocalY: number;
+  endLocalX: number;
+  endLocalY: number;
+}
+
+function getGuideLength(node: Pick<NodeData, "guideLength">): number {
+  const raw = Math.round(node.guideLength ?? DEFAULT_GUIDE_LENGTH);
+  return clamp(raw, MIN_GUIDE_LENGTH, MAX_GUIDE_LENGTH);
+}
+
+function getGuideLayout(node: Pick<NodeData, "guideLength">): GuideLayout {
+  const slotCount = getGuideLength(node);
+  return {
+    slotCount,
+    width: GUIDE_THICKNESS,
+    height:
+      GUIDE_BODY_PADDING * 2 +
+      GUIDE_SLOT_PITCH * Math.max(0, slotCount - 1) +
+      GUIDE_SLOT_HOLE_SIZE,
+    slotCenters: Array.from({ length: slotCount }, (_, idx) =>
+      GUIDE_BODY_PADDING + GUIDE_SLOT_HOLE_SIZE / 2 + idx * GUIDE_SLOT_PITCH
+    ),
+  };
+}
+
+function getCableChannels(node: Pick<NodeData, "cableChannels">): number {
+  const raw = Math.round(node.cableChannels ?? DEFAULT_CABLE_CHANNELS);
+  return clamp(raw, MIN_CABLE_CHANNELS, MAX_CABLE_CHANNELS);
+}
+
+function getCableLength(node: Pick<NodeData, "cableLength">): number {
+  const raw = Math.round(node.cableLength ?? DEFAULT_CABLE_LENGTH);
+  return clamp(snapCoord(raw), MIN_CABLE_LENGTH, MAX_CABLE_LENGTH);
+}
+
+function getCableLayout(node: Pick<NodeData, "cableChannels">): CableLayout {
+  const channels = getCableChannels(node);
+  return {
+    channels,
+    bodyHeight:
+      CABLE_PADDING_Y * 2 +
+      Math.max(0, channels - 1) * CABLE_CHANNEL_PITCH +
+      CABLE_SOCKET_SIZE,
+    rowOffsets: Array.from({ length: channels }, (_, idx) =>
+      (idx - (channels - 1) / 2) * CABLE_CHANNEL_PITCH
+    ),
+  };
+}
+
+function getCableEndpoints(
+  node: Pick<
+    NodeData,
+    | "x"
+    | "y"
+    | "cableLength"
+    | "cableChannels"
+    | "cableStartX"
+    | "cableStartY"
+    | "cableEndX"
+    | "cableEndY"
+  >
+): { startX: number; startY: number; endX: number; endY: number } {
+  const layout = getCableLayout(node);
+  const hasExplicitEndpoints =
+    typeof node.cableStartX === "number" &&
+    typeof node.cableStartY === "number" &&
+    typeof node.cableEndX === "number" &&
+    typeof node.cableEndY === "number";
+
+  if (hasExplicitEndpoints) {
+    return {
+      startX: snapCoord(node.cableStartX!),
+      startY: snapCoord(node.cableStartY!),
+      endX: snapCoord(node.cableEndX!),
+      endY: snapCoord(node.cableEndY!),
+    };
+  }
+
+  const startX = snapCoord(node.x + CABLE_END_WIDTH / 2);
+  const startY = snapCoord(node.y + DISPLAY_HEADER_HEIGHT + layout.bodyHeight / 2);
+  const endX = snapCoord(node.x + getCableLength(node) - CABLE_END_WIDTH / 2);
+  return {
+    startX,
+    startY,
+    endX,
+    endY: startY,
+  };
+}
+
+function getCableGeometry(
+  node: Pick<
+    NodeData,
+    | "x"
+    | "y"
+    | "cableLength"
+    | "cableChannels"
+    | "cableStartX"
+    | "cableStartY"
+    | "cableEndX"
+    | "cableEndY"
+  >
+): CableGeometry {
+  const layout = getCableLayout(node);
+  const { startX, startY, endX, endY } = getCableEndpoints(node);
+  const left = Math.min(startX, endX) - CABLE_END_WIDTH / 2;
+  const top = Math.min(startY, endY) - layout.bodyHeight / 2;
+  const width = Math.max(CABLE_END_WIDTH, Math.abs(endX - startX) + CABLE_END_WIDTH);
+  const height = Math.max(layout.bodyHeight, Math.abs(endY - startY) + layout.bodyHeight);
+
+  return {
+    ...layout,
+    left,
+    top,
+    width,
+    height,
+    startX,
+    startY,
+    endX,
+    endY,
+    startLocalX: startX - left,
+    startLocalY: startY - top,
+    endLocalX: endX - left,
+    endLocalY: endY - top,
+  };
+}
+
+function syncCableBounds(node: NodeData): CableGeometry {
+  if (node.type !== "CABLE") {
+    throw new Error("syncCableBounds called for non-cable node");
+  }
+
+  const endpoints = getCableEndpoints(node);
+  node.cableStartX = endpoints.startX;
+  node.cableStartY = endpoints.startY;
+  node.cableEndX = endpoints.endX;
+  node.cableEndY = endpoints.endY;
+
+  const geometry = getCableGeometry(node);
+  node.x = geometry.left;
+  node.y = geometry.top;
+  node.cableLength = Math.round(
+    Math.hypot(node.cableEndX - node.cableStartX, node.cableEndY - node.cableStartY)
+  );
+  return geometry;
+}
+
+function moveCableBy(node: NodeData, dx: number, dy: number) {
+  if (node.type !== "CABLE") return;
+  const { startX, startY, endX, endY } = getCableEndpoints(node);
+  node.cableStartX = snapCoord(startX + dx);
+  node.cableStartY = snapCoord(startY + dy);
+  node.cableEndX = snapCoord(endX + dx);
+  node.cableEndY = snapCoord(endY + dy);
+  syncCableBounds(node);
+}
+
+function getGuideInputPortId(nodeId: number, slotIndex: number): string {
+  return `${nodeId}:in:${slotIndex}`;
+}
+
+function getGuideOutputPortId(nodeId: number, slotIndex: number): string {
+  return `${nodeId}:out:${slotIndex}`;
+}
+
+function parseGuidePortId(portId: string): {
+  nodeId: number;
+  role: "in" | "out";
+  slotIndex: number;
+} | null {
+  const match = /^(\d+):(in|out):(\d+)$/.exec(portId);
+  if (!match) return null;
+  return {
+    nodeId: Number(match[1]),
+    role: match[2] as "in" | "out",
+    slotIndex: Number(match[3]),
+  };
+}
+
+function getGuidePairPortId(portId: string): string | null {
+  const parsed = parseGuidePortId(portId);
+  if (!parsed) return null;
+  return parsed.role === "in"
+    ? getGuideOutputPortId(parsed.nodeId, parsed.slotIndex)
+    : getGuideInputPortId(parsed.nodeId, parsed.slotIndex);
+}
+
+function getCablePortId(
+  nodeId: number,
+  role: "in" | "out",
+  side: CableSide,
+  channel: number
+): string {
+  return `${nodeId}:${role}:${side}-${channel}`;
+}
+
+function parseCablePortId(portId: string): {
+  nodeId: number;
+  role: "in" | "out";
+  side: CableSide;
+  channel: number;
+} | null {
+  const match = /^(\d+):(in|out):(left|right)-(\d+)$/.exec(portId);
+  if (!match) return null;
+  return {
+    nodeId: Number(match[1]),
+    role: match[2] as "in" | "out",
+    side: match[3] as CableSide,
+    channel: Number(match[4]),
+  };
+}
+
+function getCableChannelColor(channel: number): string {
+  return CABLE_COLORS[((channel % CABLE_COLORS.length) + CABLE_COLORS.length) % CABLE_COLORS.length];
+}
+
 function getDisplayPortId(nodeId: number, index: number): string {
+  return `${nodeId}:in:${index}`;
+}
+
+function getNumberDisplayPortId(nodeId: number, index: number): string {
   return `${nodeId}:in:${index}`;
 }
 
@@ -681,16 +1726,52 @@ function ensureAudioContext(): AudioContext | null {
   return audioContext;
 }
 
+function scheduleSignalRecompute() {
+  if (document.visibilityState === "hidden") {
+    if (pendingSignalRecomputeFrame != null) {
+      window.cancelAnimationFrame(pendingSignalRecomputeFrame);
+      pendingSignalRecomputeFrame = null;
+    }
+    if (pendingSignalRecomputeTimeout != null) return;
+    pendingSignalRecomputeTimeout = window.setTimeout(() => {
+      pendingSignalRecomputeTimeout = null;
+      recomputeSignals();
+    }, 0);
+    return;
+  }
+
+  if (pendingSignalRecomputeFrame != null) return;
+  pendingSignalRecomputeFrame = window.requestAnimationFrame(() => {
+    pendingSignalRecomputeFrame = null;
+    recomputeSignals();
+  });
+}
+
 function nudgeAudioContext() {
   const ctx = ensureAudioContext();
   if (!ctx || ctx.state !== "suspended") return;
   void ctx.resume().catch(() => {});
 }
 
-function stopSpeakerVoice(nodeId: number) {
-  const voice = speakerVoices.get(nodeId);
-  if (!voice) return;
-  speakerVoices.delete(nodeId);
+function createSpeakerVoice(initialFrequency: number): SpeakerVoice | null {
+  const ctx = ensureAudioContext();
+  if (!ctx) return null;
+
+  const oscillator = ctx.createOscillator();
+  oscillator.type = "triangle";
+  oscillator.frequency.setValueAtTime(initialFrequency, ctx.currentTime);
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0, ctx.currentTime);
+
+  oscillator.connect(gain);
+  gain.connect(ctx.destination);
+  oscillator.start();
+
+  return { oscillator, gain };
+}
+
+function destroySpeakerVoice(voice: SpeakerVoice) {
   try {
     voice.gain.gain.cancelScheduledValues(0);
     voice.gain.gain.setValueAtTime(0, voice.gain.context.currentTime);
@@ -700,26 +1781,479 @@ function stopSpeakerVoice(nodeId: number) {
   voice.gain.disconnect();
 }
 
+function stopSpeakerVoice(nodeId: number) {
+  const voice = speakerVoices.get(nodeId);
+  if (!voice) return;
+  speakerVoices.delete(nodeId);
+  destroySpeakerVoice(voice);
+}
+
+function stopIcSpeakerVoice(key: string) {
+  const voice = icSpeakerVoices.get(key);
+  if (!voice) return;
+  icSpeakerVoices.delete(key);
+  destroySpeakerVoice(voice);
+}
+
 function ensureSpeakerVoice(node: NodeData) {
   const existing = speakerVoices.get(node.id);
   if (existing) return existing;
-  const ctx = ensureAudioContext();
-  if (!ctx) return null;
-
-  const oscillator = ctx.createOscillator();
-  oscillator.type = "square";
-  oscillator.frequency.setValueAtTime(getSpeakerFrequency(node), ctx.currentTime);
-
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0, ctx.currentTime);
-
-  oscillator.connect(gain);
-  gain.connect(ctx.destination);
-  oscillator.start();
-
-  const voice = { oscillator, gain };
+  const voice = createSpeakerVoice(getSpeakerFrequency(node));
+  if (!voice) return null;
   speakerVoices.set(node.id, voice);
   return voice;
+}
+
+function ensureIcSpeakerVoice(key: string, initialFrequency: number) {
+  const existing = icSpeakerVoices.get(key);
+  if (existing) return existing;
+  const voice = createSpeakerVoice(initialFrequency);
+  if (!voice) return null;
+  icSpeakerVoices.set(key, voice);
+  return voice;
+}
+
+function teardownIcRuntimeState(runtimeKey: string) {
+  const runtime = icRuntimeStates.get(runtimeKey);
+  if (!runtime) return;
+
+  runtime.clockTimers.forEach((timerId) => clearInterval(timerId));
+  runtime.bufferTimeouts.forEach((pending) => {
+    pending.forEach((timeoutId) => clearTimeout(timeoutId));
+  });
+  icRuntimeStates.delete(runtimeKey);
+}
+
+function dropIcRuntimeTree(rootKey: string) {
+  Array.from(icRuntimeStates.keys()).forEach((runtimeKey) => {
+    if (runtimeKey === rootKey || runtimeKey.startsWith(`${rootKey}/`)) {
+      teardownIcRuntimeState(runtimeKey);
+    }
+  });
+  Array.from(icSpeakerVoices.keys()).forEach((key) => {
+    if (key.startsWith(`${rootKey}/`)) {
+      stopIcSpeakerVoice(key);
+    }
+  });
+}
+
+function resetAllIcRuntimeState() {
+  if (pendingSignalRecomputeFrame != null) {
+    window.cancelAnimationFrame(pendingSignalRecomputeFrame);
+    pendingSignalRecomputeFrame = null;
+  }
+  if (pendingSignalRecomputeTimeout != null) {
+    window.clearTimeout(pendingSignalRecomputeTimeout);
+    pendingSignalRecomputeTimeout = null;
+  }
+  Array.from(icRuntimeStates.keys()).forEach((runtimeKey) => {
+    teardownIcRuntimeState(runtimeKey);
+  });
+  Array.from(icSpeakerVoices.keys()).forEach((key) => stopIcSpeakerVoice(key));
+  Array.from(snakeGameStates.keys()).forEach((gameId) => {
+    const state = snakeGameStates.get(gameId);
+    if (state?.timerId != null) {
+      window.clearInterval(state.timerId);
+    }
+    snakeGameStates.delete(gameId);
+  });
+  workspaceIcResults.clear();
+}
+
+function snakeDirectionFromInputs(inputVals: boolean[]): SnakeDirection | null {
+  if (inputVals[0]) return "up";
+  if (inputVals[1]) return "left";
+  if (inputVals[2]) return "down";
+  if (inputVals[3]) return "right";
+  return null;
+}
+
+function getOppositeSnakeDirection(direction: SnakeDirection): SnakeDirection {
+  if (direction === "up") return "down";
+  if (direction === "down") return "up";
+  if (direction === "left") return "right";
+  return "left";
+}
+
+function getSnakeDirectionStep(direction: SnakeDirection): SnakeGameCell {
+  if (direction === "up") return { x: 0, y: -1 };
+  if (direction === "down") return { x: 0, y: 1 };
+  if (direction === "left") return { x: -1, y: 0 };
+  return { x: 1, y: 0 };
+}
+
+function createSnakeFood(state: SnakeGameState): SnakeGameCell {
+  const occupied = new Set(state.snake.map((cell) => `${cell.x},${cell.y}`));
+  const freeCells: SnakeGameCell[] = [];
+  for (let y = 0; y < state.gridHeight; y++) {
+    for (let x = 0; x < state.gridWidth; x++) {
+      const key = `${x},${y}`;
+      if (!occupied.has(key)) {
+        freeCells.push({ x, y });
+      }
+    }
+  }
+  if (!freeCells.length) {
+    return { x: state.gridWidth - 1, y: state.gridHeight - 1 };
+  }
+  return freeCells[Math.floor(Math.random() * freeCells.length)] ?? freeCells[0]!;
+}
+
+function resetSnakeGameState(state: SnakeGameState, now = performance.now()) {
+  const midY = Math.floor(state.gridHeight / 2);
+  const startX = Math.max(3, Math.floor(state.gridWidth / 4));
+  state.snake = [
+    { x: startX, y: midY },
+    { x: startX - 1, y: midY },
+    { x: startX - 2, y: midY },
+    { x: startX - 3, y: midY },
+  ];
+  state.direction = "right";
+  state.pendingDirection = "right";
+  state.food = createSnakeFood(state);
+  state.lastTickAt = now;
+  state.gameOver = false;
+  state.foodPulseUntil = 0;
+  state.crashPulseUntil = 0;
+  state.score = 0;
+  state.lastAdvancedEpoch = -1;
+  state.lastInputEpoch = -1;
+}
+
+function ensureSnakeGameState(
+  gameId: string,
+  gridWidth: number,
+  gridHeight: number,
+  cellScale: number,
+  tickMs: number
+): SnakeGameState {
+  const existing = snakeGameStates.get(gameId);
+  if (existing) {
+    existing.gridWidth = gridWidth;
+    existing.gridHeight = gridHeight;
+    existing.cellScale = cellScale;
+    existing.tickMs = tickMs;
+    return existing;
+  }
+
+  const state: SnakeGameState = {
+    gameId,
+    gridWidth,
+    gridHeight,
+    cellScale,
+    tickMs,
+    snake: [],
+    direction: "right",
+    pendingDirection: "right",
+    food: { x: 0, y: 0 },
+    lastTickAt: performance.now(),
+    timerId: null,
+    gameOver: false,
+    foodPulseUntil: 0,
+    crashPulseUntil: 0,
+    score: 0,
+    lastAdvancedEpoch: -1,
+    lastInputEpoch: -1,
+  };
+
+  resetSnakeGameState(state, performance.now());
+  state.timerId = window.setInterval(() => {
+    scheduleSignalRecompute();
+  }, Math.max(60, Math.min(160, Math.floor(tickMs / 2))));
+
+  snakeGameStates.set(gameId, state);
+  return state;
+}
+
+function applySnakeInputsToState(state: SnakeGameState, inputVals: boolean[]) {
+  const requestedDirection = snakeDirectionFromInputs(inputVals);
+  if (!requestedDirection) return;
+  const blocked =
+    state.snake.length > 1 &&
+    requestedDirection === getOppositeSnakeDirection(state.direction);
+  if (!blocked) {
+    state.pendingDirection = requestedDirection;
+  }
+  state.lastInputEpoch = signalRecomputeEpoch;
+}
+
+function advanceSnakeGameState(state: SnakeGameState, now = performance.now()) {
+  if (state.gameOver) {
+    if (now >= state.crashPulseUntil + state.tickMs * 2) {
+      resetSnakeGameState(state, now);
+    }
+    return;
+  }
+
+  if (now <= state.lastTickAt) return;
+  const elapsed = now - state.lastTickAt;
+  const steps = Math.min(8, Math.floor(elapsed / state.tickMs));
+  if (steps <= 0) return;
+
+  for (let stepIndex = 0; stepIndex < steps; stepIndex++) {
+    const nextDirection = state.pendingDirection;
+    const isReverse =
+      state.snake.length > 1 &&
+      nextDirection === getOppositeSnakeDirection(state.direction);
+    if (!isReverse) {
+      state.direction = nextDirection;
+    }
+
+    const head = state.snake[0] ?? { x: 1, y: 1 };
+    const delta = getSnakeDirectionStep(state.direction);
+    const nextHead = {
+      x: head.x + delta.x,
+      y: head.y + delta.y,
+    };
+
+    const willEat = nextHead.x === state.food.x && nextHead.y === state.food.y;
+    const bodyToCheck = willEat ? state.snake : state.snake.slice(0, -1);
+    const hitsBody = bodyToCheck.some((cell) => cell.x === nextHead.x && cell.y === nextHead.y);
+    const hitsWall =
+      nextHead.x < 0 ||
+      nextHead.x >= state.gridWidth ||
+      nextHead.y < 0 ||
+      nextHead.y >= state.gridHeight;
+
+    if (hitsBody || hitsWall) {
+      state.gameOver = true;
+      state.crashPulseUntil = state.lastTickAt + (stepIndex + 1) * state.tickMs + 520;
+      break;
+    }
+
+    state.snake = [nextHead, ...state.snake];
+    if (willEat) {
+      state.score += 1;
+      state.foodPulseUntil = state.lastTickAt + (stepIndex + 1) * state.tickMs + 420;
+      state.food = createSnakeFood(state);
+    } else {
+      state.snake.pop();
+    }
+  }
+
+  state.lastTickAt += steps * state.tickMs;
+}
+
+function teardownSnakeGameState(gameId: string) {
+  const state = snakeGameStates.get(gameId);
+  if (!state) return;
+  if (state.timerId != null) {
+    window.clearInterval(state.timerId);
+  }
+  snakeGameStates.delete(gameId);
+}
+
+function pruneUnusedSnakeGameStates(activeGameIds: Set<string>) {
+  Array.from(snakeGameStates.keys()).forEach((gameId) => {
+    if (!activeGameIds.has(gameId)) {
+      teardownSnakeGameState(gameId);
+    }
+  });
+}
+
+function simulateBuiltinSnakeIc(def: ICDefinition, inputVals: boolean[]): ICResult {
+  const gameId = def.snakeGameId ?? `snake:${def.id}`;
+  const gridWidth = Math.max(1, def.snakeGridWidth ?? 24);
+  const gridHeight = Math.max(1, def.snakeGridHeight ?? 16);
+  const cellScale = Math.max(1, def.snakeCellScale ?? 1);
+  const tickMs = Math.max(80, def.snakeTickMs ?? 220);
+  const state = ensureSnakeGameState(gameId, gridWidth, gridHeight, cellScale, tickMs);
+
+  if (def.builtinKind === "snake_status") {
+    applySnakeInputsToState(state, inputVals);
+  }
+  const shouldAdvance =
+    state.lastAdvancedEpoch !== signalRecomputeEpoch &&
+    (def.builtinKind === "snake_status" || state.lastInputEpoch !== signalRecomputeEpoch);
+  if (shouldAdvance) {
+    advanceSnakeGameState(state, performance.now());
+    state.lastAdvancedEpoch = signalRecomputeEpoch;
+  }
+
+  const nodeValues = new Map<number, boolean>();
+  const portOutputs = new Map<string, boolean>();
+  def.inputNodeIds.forEach((nodeId, index) => {
+    nodeValues.set(nodeId, !!inputVals[index]);
+  });
+
+  let outputs: boolean[] = [];
+  if (def.builtinKind === "snake_status") {
+    const now = performance.now();
+    const columnOutputs = Array.from({ length: gridWidth }, (_, columnIndex) =>
+      state.snake.some((cell) => cell.x === columnIndex) || state.food.x === columnIndex
+    );
+    outputs = [now <= state.foodPulseUntil, now <= state.crashPulseUntil, ...columnOutputs];
+  } else {
+    const columnIndex = clamp(def.snakeColumnIndex ?? 0, 0, gridWidth - 1);
+    const columnEnabled = inputVals[0] ?? true;
+    outputs = new Array(def.outputNodeIds.length).fill(false).map((_, outputIndex) => {
+      if (!columnEnabled) return false;
+      if (outputIndex >= gridHeight) return false;
+      const occupiedBySnake = state.snake.some(
+        (cell) => cell.x === columnIndex && cell.y === outputIndex
+      );
+      const occupiedByFood = state.food.x === columnIndex && state.food.y === outputIndex;
+      return occupiedBySnake || occupiedByFood;
+    });
+  }
+
+  def.outputNodeIds.forEach((nodeId, index) => {
+    const isOn = outputs[index] ?? false;
+    nodeValues.set(nodeId, isOn);
+    portOutputs.set(`${nodeId}:in:0`, isOn);
+  });
+
+  return {
+    outputs,
+    ledStates: [],
+    portOutputs,
+    nodeValues,
+    wireStates: [],
+    speakerStates: [],
+  };
+}
+
+function pruneUnusedIcRuntimeTrees(activeRoots: Set<string>) {
+  const staleRoots = new Set<string>();
+
+  Array.from(icRuntimeStates.keys()).forEach((runtimeKey) => {
+    const rootKey = runtimeKey.split("/")[0] ?? runtimeKey;
+    if (!activeRoots.has(rootKey)) staleRoots.add(rootKey);
+  });
+  Array.from(icSpeakerVoices.keys()).forEach((key) => {
+    const rootKey = key.split("/")[0] ?? key;
+    if (!activeRoots.has(rootKey)) staleRoots.add(rootKey);
+  });
+
+  staleRoots.forEach((rootKey) => dropIcRuntimeTree(rootKey));
+}
+
+const icHeldKeys = new Set<string>();
+
+function refreshIcKeyRuntimeStates() {
+  icRuntimeStates.forEach((runtime) => {
+    const def = icDefinitions.find((candidate) => candidate.id === runtime.defId);
+    if (!def) return;
+    def.nodes.forEach((node) => {
+      if (node.type !== "KEY") return;
+      runtime.portOutputs.set(`${node.id}:out:0`, isIcKeyNodeActive(node));
+    });
+  });
+}
+
+window.addEventListener("keydown", (event) => {
+  const key = event.key.trim().toLowerCase();
+  if (key) icHeldKeys.add(key);
+  refreshIcKeyRuntimeStates();
+  recomputeSignals();
+});
+
+window.addEventListener("keyup", (event) => {
+  const key = event.key.trim().toLowerCase();
+  if (key) icHeldKeys.delete(key);
+  refreshIcKeyRuntimeStates();
+  recomputeSignals();
+});
+
+window.addEventListener("blur", () => {
+  icHeldKeys.clear();
+  refreshIcKeyRuntimeStates();
+  recomputeSignals();
+});
+
+function isIcKeyNodeActive(node: NodeData) {
+  const key = node.keyChar?.trim().toLowerCase() ?? "";
+  if (!key) return false;
+  return icHeldKeys.has(key);
+}
+
+function ensureIcRuntimeState(def: ICDefinition, runtimeKey: string): IcRuntimeState {
+  const existing = icRuntimeStates.get(runtimeKey);
+  if (existing && existing.defId === def.id) return existing;
+  if (existing) teardownIcRuntimeState(runtimeKey);
+
+  const runtime: IcRuntimeState = {
+    defId: def.id,
+    nodes: new Map<number, NodeData>(),
+    portOutputs: new Map<string, boolean>(),
+    wireStates: new Array(def.wires.length).fill(false),
+    bufferLastInput: new Map<number, boolean>(),
+    bufferTimeouts: new Map<number, Set<number>>(),
+    clockTimers: new Map<number, number>(),
+    clockLastTickAt: new Map<number, number>(),
+  };
+
+  def.nodes.forEach((sourceNode) => {
+    const clonedNode: NodeData = { ...sourceNode };
+    if (clonedNode.type === "POWER") clonedNode.value = true;
+    runtime.nodes.set(clonedNode.id, clonedNode);
+
+    if (clonedNode.type === "CLOCK") {
+      runtime.clockLastTickAt.set(clonedNode.id, performance.now());
+      const delay = clonedNode.clockDelayMs ?? 100;
+      const timerId = window.setInterval(() => {
+        const liveRuntime = icRuntimeStates.get(runtimeKey);
+        const liveNode = liveRuntime?.nodes.get(clonedNode.id);
+        if (!liveRuntime || !liveNode) return;
+        const advanced = advanceClockNode(
+          liveNode,
+          liveRuntime.clockLastTickAt,
+          performance.now()
+        );
+        if (advanced || document.visibilityState === "hidden") {
+          scheduleSignalRecompute();
+        }
+      }, delay);
+      runtime.clockTimers.set(clonedNode.id, timerId);
+    } else if (clonedNode.type === "BUFFER") {
+      runtime.bufferLastInput.set(clonedNode.id, false);
+    }
+  });
+
+  icRuntimeStates.set(runtimeKey, runtime);
+  return runtime;
+}
+
+function advanceClockNode(
+  node: NodeData,
+  lastTickMap: Map<number, number>,
+  now = performance.now()
+): boolean {
+  if (node.type !== "CLOCK") return false;
+  const delay = Math.max(1, node.clockDelayMs ?? 100);
+  const lastTick = lastTickMap.get(node.id);
+  if (lastTick == null) {
+    lastTickMap.set(node.id, now);
+    return false;
+  }
+
+  const elapsed = now - lastTick;
+  if (elapsed < delay) return false;
+
+  const ticks = Math.floor(elapsed / delay);
+  if (ticks <= 0) return false;
+  lastTickMap.set(node.id, lastTick + ticks * delay);
+  if (ticks % 2 === 1) {
+    node.value = !node.value;
+    return true;
+  }
+  return false;
+}
+
+function catchUpWorkspaceClocks(now = performance.now()) {
+  let changed = false;
+  nodes.forEach((node) => {
+    if (advanceClockNode(node, clockLastTickAt, now)) changed = true;
+  });
+  return changed;
+}
+
+function catchUpRuntimeClocks(runtime: IcRuntimeState, now = performance.now()) {
+  let changed = false;
+  runtime.nodes.forEach((node) => {
+    if (advanceClockNode(node, runtime.clockLastTickAt, now)) changed = true;
+  });
+  return changed;
 }
 
 function rerenderNode(node: NodeData) {
@@ -750,6 +2284,59 @@ function pruneDisplayWires(node: NodeData) {
   }
 }
 
+function pruneNumberDisplayWires(node: NodeData) {
+  if (node.type !== "NUMBER_DISPLAY") return;
+  const maxInputs = getNumberDisplayInputCount(node);
+  for (let i = wires.length - 1; i >= 0; i--) {
+    const wire = wires[i];
+    if (wire.toNodeId !== node.id) continue;
+    const [, role, suffix] = wire.toPortId.split(":");
+    const index = Number(suffix);
+    const keep =
+      role === "in" &&
+      Number.isFinite(index) &&
+      index >= 0 &&
+      index < maxInputs;
+    if (keep) continue;
+    selectedWireIds.delete(wire.id);
+    wires.splice(i, 1);
+  }
+}
+
+function pruneGuideWires(node: NodeData) {
+  if (node.type !== "GUIDE") return;
+  const slotCount = getGuideLength(node);
+  for (let i = wires.length - 1; i >= 0; i--) {
+    const wire = wires[i];
+    if (wire.toNodeId !== node.id && wire.fromNodeId !== node.id) continue;
+
+    const parsedTo = wire.toNodeId === node.id ? parseGuidePortId(wire.toPortId) : null;
+    const parsedFrom = wire.fromNodeId === node.id ? parseGuidePortId(wire.fromPortId) : null;
+    const slotIndex = parsedTo?.slotIndex ?? parsedFrom?.slotIndex ?? -1;
+    if (slotIndex >= 0 && slotIndex < slotCount) continue;
+
+    selectedWireIds.delete(wire.id);
+    wires.splice(i, 1);
+  }
+}
+
+function pruneCableWires(node: NodeData) {
+  if (node.type !== "CABLE") return;
+  const channelCount = getCableChannels(node);
+  for (let i = wires.length - 1; i >= 0; i--) {
+    const wire = wires[i];
+    if (wire.toNodeId !== node.id && wire.fromNodeId !== node.id) continue;
+
+    const parsedTo = wire.toNodeId === node.id ? parseCablePortId(wire.toPortId) : null;
+    const parsedFrom = wire.fromNodeId === node.id ? parseCablePortId(wire.fromPortId) : null;
+    const channel = parsedTo?.channel ?? parsedFrom?.channel ?? -1;
+    if (channel >= 0 && channel < channelCount) continue;
+
+    selectedWireIds.delete(wire.id);
+    wires.splice(i, 1);
+  }
+}
+
 function setDisplayPortHover(portId: string | null, hovered: boolean) {
   if (!portId) return;
   const port = portElements.get(portId) ?? findPortElementById(portId);
@@ -770,11 +2357,16 @@ function setDisplayPortHover(portId: string | null, hovered: boolean) {
 function initializeNodeDynamicBehavior(node: NodeData) {
   if (node.type === "CLOCK") {
     if (!node.clockDelayMs) node.clockDelayMs = 100;
+    if (!clockLastTickAt.has(node.id)) {
+      clockLastTickAt.set(node.id, performance.now());
+    }
     if (!clockTimers.has(node.id)) {
       const delay = node.clockDelayMs;
       const timer = window.setInterval(() => {
-        node.value = !node.value;
-        recomputeSignals();
+        const advanced = advanceClockNode(node, clockLastTickAt, performance.now());
+        if (advanced || document.visibilityState === "hidden") {
+          scheduleSignalRecompute();
+        }
       }, delay);
       clockTimers.set(node.id, timer);
     }
@@ -799,6 +2391,7 @@ function teardownNodeDynamicBehavior(nodeId: number) {
     clearInterval(t);
     clockTimers.delete(nodeId);
   }
+  clockLastTickAt.delete(nodeId);
   clearBufferTimeouts(nodeId);
   bufferLastInput.delete(nodeId);
   stopSpeakerVoice(nodeId);
@@ -836,6 +2429,22 @@ function createNode(type: NodeType, x: number, y: number): NodeData {
   if (type === "DISPLAY") {
     node.displayWidth = DEFAULT_DISPLAY_WIDTH;
     node.displayHeight = DEFAULT_DISPLAY_HEIGHT;
+  }
+  if (type === "NUMBER_DISPLAY") {
+    node.numberDigits = DEFAULT_NUMBER_DISPLAY_DIGITS;
+  }
+  if (type === "GUIDE") {
+    node.guideLength = DEFAULT_GUIDE_LENGTH;
+  }
+  if (type === "CABLE") {
+    node.cableChannels = DEFAULT_CABLE_CHANNELS;
+    node.cableLength = DEFAULT_CABLE_LENGTH;
+    const layout = getCableLayout(node);
+    node.cableStartX = snapCoord(node.x + CABLE_END_WIDTH / 2);
+    node.cableStartY = snapCoord(node.y + layout.bodyHeight / 2);
+    node.cableEndX = snapCoord(node.cableStartX + DEFAULT_CABLE_LENGTH - CABLE_END_WIDTH);
+    node.cableEndY = node.cableStartY;
+    syncCableBounds(node);
   }
 
   nodes.set(node.id, node);
@@ -1108,6 +2717,702 @@ function applyGateSvg(el: HTMLElement, type: InlineGateType, options: GateSvgOpt
   shape.innerHTML = gateSvgMarkup(type, options);
 }
 
+interface IcPreviewRenderState {
+  nodeValues?: Map<number, boolean>;
+  wireStates?: boolean[];
+  portOutputs?: Map<string, boolean>;
+  ledStates?: boolean[];
+}
+
+interface IcPreviewWireRef {
+  wire: ICDefinition["wires"][number];
+  index: number;
+}
+
+interface IcPreviewScene {
+  nodes: NodeData[];
+  wires: IcPreviewWireRef[];
+  nodeMap: Map<number, NodeData>;
+  hiddenNodeIds: Set<number>;
+  portAnchors: Map<string, { x: number; y: number }>;
+}
+
+function isIcPreviewRootNode(node: NodeData, def: ICDefinition): boolean {
+  return (
+    def.inputNodeIds.includes(node.id) ||
+    node.type === "POWER" ||
+    node.type === "BUTTON" ||
+    node.type === "KEY" ||
+    node.type === "CLOCK"
+  );
+}
+
+function shouldHideIcPreviewNode(node: NodeData, def: ICDefinition): boolean {
+  void def;
+  if (node.type === "SWITCH" || node.type === "OUTPUT") return true;
+  return false;
+}
+
+function buildIcPreviewScene(def: ICDefinition): IcPreviewScene {
+  const nodeMap = new Map<number, NodeData>();
+  const adjacency = new Map<number, Set<number>>();
+  const wiredNodeIds = new Set<number>();
+
+  def.nodes.forEach((node) => {
+    nodeMap.set(node.id, node);
+  });
+
+  def.wires.forEach((wire) => {
+    wiredNodeIds.add(wire.fromNodeId);
+    wiredNodeIds.add(wire.toNodeId);
+    if (!adjacency.has(wire.fromNodeId)) adjacency.set(wire.fromNodeId, new Set());
+    if (!adjacency.has(wire.toNodeId)) adjacency.set(wire.toNodeId, new Set());
+    adjacency.get(wire.fromNodeId)!.add(wire.toNodeId);
+    adjacency.get(wire.toNodeId)!.add(wire.fromNodeId);
+  });
+
+  const reachableNodeIds = new Set<number>();
+  const queue = def.nodes
+    .filter((node) => wiredNodeIds.has(node.id) && isIcPreviewRootNode(node, def))
+    .map((node) => node.id);
+
+  while (queue.length > 0) {
+    const nodeId = queue.shift()!;
+    if (reachableNodeIds.has(nodeId)) continue;
+    reachableNodeIds.add(nodeId);
+    adjacency.get(nodeId)?.forEach((nextId) => {
+      if (!reachableNodeIds.has(nextId)) queue.push(nextId);
+    });
+  }
+
+  const hiddenNodeIds = new Set<number>();
+  const nodes = def.nodes.filter((node) => {
+    if (!wiredNodeIds.has(node.id) || !reachableNodeIds.has(node.id)) return false;
+    if (shouldHideIcPreviewNode(node, def)) {
+      hiddenNodeIds.add(node.id);
+      return false;
+    }
+    return true;
+  });
+
+  let minVisibleX = Infinity;
+  let maxVisibleX = -Infinity;
+  nodes.forEach((node) => {
+    const { w } = getNodeLayoutSize(node);
+    minVisibleX = Math.min(minVisibleX, node.x);
+    maxVisibleX = Math.max(maxVisibleX, node.x + w);
+  });
+  if (!Number.isFinite(minVisibleX) || !Number.isFinite(maxVisibleX)) {
+    minVisibleX = 24;
+    maxVisibleX = 144;
+  }
+
+  const portAnchors = new Map<string, { x: number; y: number }>();
+  const leftAnchorX = minVisibleX - 26;
+  const rightAnchorX = maxVisibleX + 26;
+
+  def.inputNodeIds.forEach((nodeId) => {
+    if (!reachableNodeIds.has(nodeId) || !hiddenNodeIds.has(nodeId)) return;
+    const node = nodeMap.get(nodeId);
+    if (!node) return;
+    const { h } = getNodeLayoutSize(node);
+    portAnchors.set(`${nodeId}:out:0`, {
+      x: leftAnchorX,
+      y: node.y + h / 2,
+    });
+  });
+
+  def.outputNodeIds.forEach((nodeId) => {
+    if (!reachableNodeIds.has(nodeId) || !hiddenNodeIds.has(nodeId)) return;
+    const node = nodeMap.get(nodeId);
+    if (!node) return;
+    const { h } = getNodeLayoutSize(node);
+    portAnchors.set(`${nodeId}:in:0`, {
+      x: rightAnchorX,
+      y: node.y + h / 2,
+    });
+  });
+
+  const wires = def.wires
+    .map((wire, index) => ({ wire, index }))
+    .filter(
+      ({ wire }) =>
+        reachableNodeIds.has(wire.fromNodeId) &&
+        reachableNodeIds.has(wire.toNodeId) &&
+        (!hiddenNodeIds.has(wire.fromNodeId) || portAnchors.has(wire.fromPortId)) &&
+        (!hiddenNodeIds.has(wire.toNodeId) || portAnchors.has(wire.toPortId))
+    );
+
+  return { nodes, wires, nodeMap, hiddenNodeIds, portAnchors };
+}
+
+function computeIcPreviewBounds(
+  scene: IcPreviewScene,
+  icDefMap: Map<number, ICDefinition>
+) {
+  if (scene.nodes.length === 0 && scene.wires.length === 0) {
+    return { minX: 0, minY: 0, maxX: 320, maxY: 200 };
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  const addPoint = (x: number, y: number, pad = 28) => {
+    minX = Math.min(minX, x - pad);
+    minY = Math.min(minY, y - pad);
+    maxX = Math.max(maxX, x + pad);
+    maxY = Math.max(maxY, y + pad);
+  };
+
+  scene.nodes.forEach((node) => {
+    const { w, h } = nodeApproxSize(node, icDefMap);
+    minX = Math.min(minX, node.x - 28);
+    minY = Math.min(minY, node.y - 28);
+    maxX = Math.max(maxX, node.x + w + 28);
+    maxY = Math.max(maxY, node.y + h + 28);
+  });
+
+  scene.wires.forEach(({ wire }) => {
+    const fromNode = scene.nodeMap.get(wire.fromNodeId);
+    const toNode = scene.nodeMap.get(wire.toNodeId);
+    if (!fromNode || !toNode) return;
+    const from = portPosForPreview(fromNode, wire.fromPortId, icDefMap, scene.portAnchors);
+    const to = portPosForPreview(toNode, wire.toPortId, icDefMap, scene.portAnchors);
+    addPoint(from.x, from.y);
+    addPoint(to.x, to.y);
+  });
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return { minX: 0, minY: 0, maxX: 320, maxY: 200 };
+  }
+
+  return { minX, minY, maxX, maxY };
+}
+
+function previewLabelForNode(node: NodeData, icDefMap: Map<number, ICDefinition>): string {
+  if (node.type === "IC") {
+    return node.icDefId != null ? icDefMap.get(node.icDefId)?.name || "IC" : "IC";
+  }
+  if (node.type === "KEY") return (node.keyChar || "a").slice(0, 1).toUpperCase();
+  if (node.type === "BUTTON") return "BTN";
+  if (node.type === "POWER") return "PWR";
+  if (node.type === "OUTPUT") return "OUT";
+  if (node.type === "SPEAKER") return "SPK";
+  if (node.type === "DISPLAY") return "DSP";
+  if (node.type === "CLOCK") return "CLK";
+  return node.type;
+}
+
+function renderPreviewGateNode(
+  node: NodeData,
+  active: boolean,
+  inputAActive: boolean,
+  inputBActive: boolean,
+  outputActive: boolean
+): string {
+  const { w, h } = getNodeLayoutSize(node);
+  const stroke = active ? "#f97316" : "#0f172a";
+  const fill = active ? "rgba(249,115,22,0.14)" : "rgba(255,255,255,0.86)";
+  const lead = (x1: number, y1: number, x2: number, y2: number, on: boolean) =>
+    `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${on ? "#ef4444" : "rgba(15,23,42,0.35)"}" stroke-width="4" stroke-linecap="round" />`;
+  const leftX = 8;
+  const inputX = 28;
+  const outputX = w - 8;
+  const gateLeft = 28;
+  const gateRight = w - 28;
+  const topY = 12;
+  const bottomY = h - 12;
+  const midY = h / 2;
+  const content = (() => {
+    if (node.type === "AND" || node.type === "NAND") {
+      const body =
+        `M ${gateLeft} ${topY} ` +
+        `L ${gateRight - 18} ${topY} ` +
+        `Q ${gateRight + 8} ${midY} ${gateRight - 18} ${bottomY} ` +
+        `L ${gateLeft} ${bottomY} Z`;
+      const bubble =
+        node.type === "NAND"
+          ? `<circle cx="${gateRight - 6}" cy="${midY}" r="5" fill="${fill}" stroke="${stroke}" stroke-width="3" />`
+          : "";
+      const leadStart = node.type === "NAND" ? gateRight : gateRight - 10;
+      return `
+        ${lead(leftX, topY + 8, inputX, topY + 8, inputAActive)}
+        ${lead(leftX, bottomY - 8, inputX, bottomY - 8, inputBActive)}
+        <path d="${body}" fill="${fill}" stroke="${stroke}" stroke-width="3" />
+        ${bubble}
+        ${lead(leadStart, midY, outputX, midY, outputActive)}
+      `;
+    }
+
+    if (node.type === "OR" || node.type === "NOR" || node.type === "XOR") {
+      const frontPath =
+        `M ${gateLeft - 8} ${topY} ` +
+        `Q ${gateRight - 6} ${midY} ${gateLeft - 8} ${bottomY} ` +
+        `Q ${gateLeft + 18} ${midY} ${gateLeft - 8} ${topY} Z`;
+      const backPath =
+        `M ${gateLeft - 20} ${topY} ` +
+        `Q ${gateLeft - 2} ${midY} ${gateLeft - 20} ${bottomY}`;
+      const bubble =
+        node.type === "NOR"
+          ? `<circle cx="${gateRight - 2}" cy="${midY}" r="5" fill="${fill}" stroke="${stroke}" stroke-width="3" />`
+          : "";
+      const leadStart = node.type === "NOR" ? gateRight + 4 : gateRight - 2;
+      return `
+        ${lead(leftX, topY + 8, inputX, topY + 8, inputAActive)}
+        ${lead(leftX, bottomY - 8, inputX, bottomY - 8, inputBActive)}
+        ${node.type === "XOR" ? `<path d="${backPath}" fill="none" stroke="${stroke}" stroke-width="3" />` : ""}
+        <path d="${frontPath}" fill="${fill}" stroke="${stroke}" stroke-width="3" />
+        ${bubble}
+        ${lead(leadStart, midY, outputX, midY, outputActive)}
+      `;
+    }
+
+    const triangle = `M ${gateLeft} ${topY} L ${gateRight - 14} ${midY} L ${gateLeft} ${bottomY} Z`;
+    const bubble =
+      node.type === "NOT"
+        ? `<circle cx="${gateRight - 8}" cy="${midY}" r="5" fill="${fill}" stroke="${stroke}" stroke-width="3" />`
+        : "";
+    const leadStart = node.type === "NOT" ? gateRight - 2 : gateRight - 14;
+    return `
+      ${lead(leftX, midY, inputX, midY, inputAActive)}
+      <path d="${triangle}" fill="${fill}" stroke="${stroke}" stroke-width="3" />
+      ${bubble}
+      ${lead(leadStart, midY, outputX, midY, outputActive)}
+    `;
+  })();
+
+  return `<g transform="translate(${node.x},${node.y})">${content}</g>`;
+}
+
+function renderPreviewSimpleNode(
+  node: NodeData,
+  icDefMap: Map<number, ICDefinition>,
+  state?: IcPreviewRenderState
+): string {
+  const { w, h } = getNodeLayoutSize(node);
+  const active = state?.nodeValues?.get(node.id) ?? false;
+  const stroke = active ? "#f97316" : "#0f172a";
+  const fill = active ? "rgba(249,115,22,0.14)" : "rgba(255,255,255,0.86)";
+  const label = previewLabelForNode(node, icDefMap);
+
+  if (node.type === "OUTPUT" || node.type === "LED") {
+    const color = node.lightColor || DEFAULT_LIGHT_COLOR;
+    const lampCx = 62;
+    const lampCy = h / 2;
+    const lampOuterR = 14;
+    const lampInnerR = 8;
+    const leadLeftX = 30;
+    const leadRightX = 94;
+    const bodyStroke = active ? "#1f2937" : "#334155";
+    const coreFill = active ? color : "#ffffff";
+    const coreStroke = active ? color : "rgba(100,116,139,0.6)";
+    return `
+      <g transform="translate(${node.x},${node.y})">
+        <line x1="${leadLeftX}" y1="${lampCy}" x2="${lampCx - lampOuterR}" y2="${lampCy}"
+              stroke="${bodyStroke}" stroke-width="3" stroke-linecap="round" />
+        <line x1="${lampCx + lampOuterR}" y1="${lampCy}" x2="${leadRightX}" y2="${lampCy}"
+              stroke="${bodyStroke}" stroke-width="3" stroke-linecap="round" />
+        <circle cx="${lampCx}" cy="${lampCy}" r="${lampOuterR}"
+                fill="#ffffff"
+                stroke="${bodyStroke}" stroke-width="3" />
+        <circle cx="${lampCx}" cy="${lampCy}" r="${lampInnerR}"
+                fill="${coreFill}"
+                stroke="${coreStroke}" stroke-width="2.5" />
+      </g>
+    `;
+  }
+
+  if (node.type === "DISPLAY") {
+    const layout = getDisplayLayout(node);
+    const pixelSize = 6;
+    const pixels = Array.from({ length: Math.min(layout.pixelCount, 16) }, (_, index) => {
+      const col = index % Math.min(layout.width, 4);
+      const row = Math.floor(index / Math.min(layout.width, 4));
+      return `<rect x="${18 + col * (pixelSize + 2)}" y="${14 + row * (pixelSize + 2)}"
+        width="${pixelSize}" height="${pixelSize}" rx="1"
+        fill="${active && index % 2 === 0 ? "#f8fafc" : "#111827"}" />`;
+    }).join("");
+    return `
+      <g transform="translate(${node.x},${node.y})">
+        <rect x="14" y="10" width="${w - 28}" height="${h - 20}" rx="8"
+              fill="#050505" stroke="${stroke}" stroke-width="3" />
+        ${pixels}
+      </g>
+    `;
+  }
+
+  if (node.type === "NUMBER_DISPLAY") {
+    const layout = getNumberDisplayLayout(node);
+    const chars = new Array(layout.digits).fill(active ? "8" : "0");
+    const digitsSvg = chars
+      .map((char, index) => {
+        const x = 18 + index * (18 + 6);
+        return `<rect x="${x}" y="10" width="18" height="24" rx="4"
+            fill="#0f172a" stroke="${stroke}" stroke-width="2" />
+          <text x="${x + 9}" y="27" text-anchor="middle"
+            font-family="ui-monospace, Menlo, Monaco, Consolas, 'Courier New', monospace"
+            font-size="16" fill="#fde68a">${escapeHtml(char)}</text>`;
+      })
+      .join("");
+    return `
+      <g transform="translate(${node.x},${node.y})">
+        <rect x="10" y="8" width="${w - 20}" height="${h - 16}" rx="10"
+              fill="${fill}" stroke="${stroke}" stroke-width="3" />
+        ${digitsSvg}
+      </g>
+    `;
+  }
+
+  if (node.type === "GUIDE") {
+    const layout = getGuideLayout(node);
+    const holes = layout.slotCenters
+      .map((slotCenter, idx) => {
+        const activeSlot = state?.portOutputs?.get(getGuideOutputPortId(node.id, idx)) ?? false;
+        return `<circle cx="${layout.width / 2}" cy="${slotCenter}" r="${GUIDE_SLOT_HOLE_SIZE / 2 - 1}"
+          fill="${activeSlot ? "rgba(239,68,68,0.24)" : "#111827"}"
+          stroke="${activeSlot ? "#ef4444" : "rgba(255,255,255,0.3)"}" stroke-width="2" />`;
+      })
+      .join("");
+    return `
+      <g transform="translate(${node.x},${node.y})">
+        <rect x="4" y="4" width="${layout.width - 8}" height="${layout.height - 8}" rx="10"
+              fill="rgba(15,23,42,0.92)" stroke="${stroke}" stroke-width="2.5" />
+        ${holes}
+      </g>
+    `;
+  }
+
+  if (node.type === "CABLE") {
+    const geometry = getCableGeometry(node);
+    const lanes = geometry.rowOffsets
+      .map((rowOffset, channel) => {
+        const color = getCableChannelColor(channel);
+        const startY = geometry.startLocalY + rowOffset;
+        const endY = geometry.endLocalY + rowOffset;
+        return `
+          <line x1="${geometry.startLocalX}" y1="${startY}" x2="${geometry.endLocalX}" y2="${endY}"
+                stroke="${color}" stroke-opacity="0.5" stroke-width="6" stroke-linecap="round" />
+          <circle cx="${geometry.startLocalX}" cy="${startY}" r="5.5" fill="#ffffff" stroke="${color}" stroke-width="3" />
+          <circle cx="${geometry.endLocalX}" cy="${endY}" r="5.5" fill="#ffffff" stroke="${color}" stroke-width="3" />
+        `;
+      })
+      .join("");
+    return `
+      <g transform="translate(${geometry.left},${geometry.top})">
+        <rect x="${geometry.startLocalX - CABLE_END_WIDTH / 2}" y="${geometry.startLocalY - geometry.bodyHeight / 2}" width="${CABLE_END_WIDTH}" height="${geometry.bodyHeight}" rx="8"
+              fill="rgba(15,23,42,0.9)" stroke="${stroke}" stroke-width="2.5" />
+        <rect x="${geometry.endLocalX - CABLE_END_WIDTH / 2}" y="${geometry.endLocalY - geometry.bodyHeight / 2}" width="${CABLE_END_WIDTH}" height="${geometry.bodyHeight}" rx="8"
+              fill="rgba(15,23,42,0.9)" stroke="${stroke}" stroke-width="2.5" />
+        ${lanes}
+      </g>
+    `;
+  }
+
+  if (node.type === "POWER") {
+    const iconCx = 54;
+    const iconCy = h / 2;
+    const iconR = 13;
+    const leadEndX = 88;
+    return `
+      <g transform="translate(${node.x},${node.y})">
+        <circle cx="${iconCx}" cy="${iconCy}" r="${iconR}"
+                fill="#f97316"
+                stroke="#0f172a" stroke-width="3" />
+        <path d="M ${iconCx} ${iconCy - 8} L ${iconCx} ${iconCy - 1}"
+              fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round" />
+        <line x1="${iconCx + iconR}" y1="${iconCy}" x2="${leadEndX}" y2="${iconCy}"
+              stroke="#0f172a" stroke-width="3" stroke-linecap="round" />
+      </g>
+    `;
+  }
+
+  if (node.type === "IC") {
+    const labelSize = clamp(Math.round(Math.min(w, h) * 0.18), 12, 20);
+    return `
+      <g transform="translate(${node.x},${node.y})">
+        <rect x="4" y="4" width="${w - 8}" height="${h - 8}" rx="4"
+              fill="#efefef"
+              stroke="#9ca3af" stroke-width="2" />
+        <text x="${w / 2}" y="${h / 2 + 4}" text-anchor="middle"
+              font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+              font-size="${labelSize}" fill="#5b5b5b">${escapeHtml(label)}</text>
+      </g>
+    `;
+  }
+
+  return `
+    <g transform="translate(${node.x},${node.y})">
+      <rect x="10" y="8" width="${w - 20}" height="${h - 16}" rx="10"
+            fill="${fill}" stroke="${stroke}" stroke-width="3" />
+      <text x="${w / 2}" y="${h / 2 + 4}" text-anchor="middle"
+            font-family="ui-monospace, Menlo, Monaco, Consolas, 'Courier New', monospace"
+            font-size="10" fill="#0f172a">${escapeHtml(label)}</text>
+    </g>
+  `;
+}
+
+function getIcPreviewLedEntries(
+  def: ICDefinition,
+  state?: IcPreviewRenderState
+) {
+  return def.ledNodeIds
+    .map((nodeId, index) => {
+      const node = def.nodes.find((candidate) => candidate.id === nodeId);
+      if (!node) return null;
+      return {
+        node,
+        isOn: !!state?.ledStates?.[index],
+        color: node.lightColor ?? "#22c55e",
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry != null)
+    .sort((a, b) => a.node.y - b.node.y || a.node.x - b.node.x);
+}
+
+function renderIcPreviewLedStack(opts: {
+  def: ICDefinition;
+  width: number;
+  height: number;
+  minX: number;
+  minY: number;
+  state?: IcPreviewRenderState;
+}): string {
+  const ledEntries = getIcPreviewLedEntries(opts.def, opts.state);
+
+  if (ledEntries.length === 0) return "";
+
+  const radius = Math.max(4.5, Math.min(7.5, opts.height / Math.max(10, ledEntries.length * 4.25)));
+  const gap = radius * 2.65;
+  const totalHeight = gap * Math.max(0, ledEntries.length - 1);
+  const cx = opts.minX + opts.width * 0.5;
+  const startY = opts.minY + opts.height / 2 - totalHeight / 2;
+
+  return ledEntries
+    .map((entry, index) => {
+      const cy = startY + index * gap;
+      return `
+        <g>
+          ${entry.isOn ? `<circle cx="${cx}" cy="${cy}" r="${radius + 3}" fill="${entry.color}" opacity="0.16" />` : ""}
+          <circle cx="${cx}" cy="${cy}" r="${radius}" fill="#f8fafc" stroke="rgba(15,23,42,0.68)" stroke-width="1.9" />
+          <circle cx="${cx}" cy="${cy}" r="${Math.max(2.8, radius - 2.1)}" fill="${entry.color}" opacity="${entry.isOn ? 0.98 : 0.22}" />
+        </g>
+      `.trim();
+    })
+    .join("");
+}
+
+function getPreviewAnchorFromStore(
+  portAnchors: unknown,
+  portId: string
+): { x: number; y: number } | null {
+  const fromMap = (portAnchors as Map<string, { x: number; y: number }>)?.get?.(portId);
+  if (fromMap) return fromMap;
+  const fromObject = (portAnchors as Record<string, { x: number; y: number }> | undefined)?.[portId];
+  return fromObject ?? null;
+}
+
+function renderIcPreviewSvg(opts: {
+  def: ICDefinition;
+  icDefinitions?: ICDefinition[];
+  width: number;
+  height: number;
+  state?: IcPreviewRenderState;
+}): string {
+  if (opts.def.builtinKind === "snake_status") {
+    return "";
+  }
+
+  if (opts.def.builtinKind === "snake_column") {
+    return "";
+  }
+
+  const icDefMap = new Map<number, ICDefinition>();
+  (opts.icDefinitions ?? icDefinitions).forEach((d) => icDefMap.set(d.id, d));
+  icDefMap.set(opts.def.id, opts.def);
+  const scene = buildIcPreviewScene(opts.def);
+  const bounds = computeIcPreviewBounds(scene, icDefMap);
+  const vbW = Math.max(1, bounds.maxX - bounds.minX);
+  const vbH = Math.max(1, bounds.maxY - bounds.minY);
+  const previewTooLarge =
+    scene.nodes.length > 20 ||
+    scene.wires.length > 28 ||
+    vbW > 560 ||
+    vbH > 280;
+  const ledStackSvg = renderIcPreviewLedStack({
+    def: opts.def,
+    width: vbW,
+    height: vbH,
+    minX: bounds.minX,
+    minY: bounds.minY,
+    state: opts.state,
+  });
+  const wireStates = opts.state?.wireStates ?? [];
+  const isWireActive = (wireIndex: number) => !!wireStates[wireIndex];
+
+  const hasActiveIncoming = (nodeId: number, slot?: "a" | "b") =>
+    scene.wires.some(({ wire, index }) => {
+      if (wire.toNodeId !== nodeId || !isWireActive(index)) return false;
+      if (slot == null) return true;
+      return wire.toPortId === `${nodeId}:in:${slot}`;
+    });
+
+  const hasActiveOutgoing = (node: NodeData) => {
+    if (scene.wires.some(({ wire, index }) => wire.fromNodeId === node.id && isWireActive(index))) {
+      return true;
+    }
+    return opts.state?.nodeValues?.get(node.id) ?? false;
+  };
+
+  const resolvePreviewPortPos = (node: NodeData | undefined, portId: string) => {
+    if (node) return portPosForPreview(node, portId, icDefMap, scene.portAnchors);
+    return getPreviewAnchorFromStore(scene.portAnchors, portId);
+  };
+
+  if (previewTooLarge) {
+    return `
+      <svg xmlns="http://www.w3.org/2000/svg"
+           width="${opts.width}" height="${opts.height}"
+           viewBox="${bounds.minX} ${bounds.minY} ${vbW} ${vbH}"
+           preserveAspectRatio="xMidYMid meet">
+        ${ledStackSvg}
+      </svg>
+    `.trim();
+  }
+
+  const wiresSvg = scene.wires
+    .map(({ wire, index }) => {
+      const fromNode = scene.nodeMap.get(wire.fromNodeId);
+      const toNode = scene.nodeMap.get(wire.toNodeId);
+      const p1 = resolvePreviewPortPos(fromNode, wire.fromPortId);
+      const p2 = resolvePreviewPortPos(toNode, wire.toPortId);
+      if (!p1 || !p2) return "";
+      const active = isWireActive(index);
+      return `<path d="${wirePathD(p1.x, p1.y, p2.x, p2.y)}"
+        fill="none"
+        stroke="${active ? "#ef4444" : "rgba(15,23,42,0.18)"}"
+        stroke-width="${active ? 5 : 3.25}"
+        stroke-linecap="round" />`;
+    })
+    .join("");
+
+  const portDecorations = new Map<string, string>();
+  scene.wires.forEach(({ wire, index }) => {
+    const active = isWireActive(index);
+    const decorate = (nodeId: number, portId: string) => {
+      const node = scene.nodeMap.get(nodeId);
+      if (!node) return;
+      const anchor = resolvePreviewPortPos(node, portId);
+      if (!anchor) return;
+      const centerX = node.x + 18;
+      const centerY = node.y + 12;
+      const dx = centerX - anchor.x;
+      const dy = centerY - anchor.y;
+      const len = Math.max(1, Math.hypot(dx, dy));
+      const stubLen = Math.min(8, len);
+      const stubX = anchor.x + (dx / len) * stubLen;
+      const stubY = anchor.y + (dy / len) * stubLen;
+      portDecorations.set(
+        `${nodeId}:${portId}`,
+        `
+          <g>
+            <path d="M ${anchor.x} ${anchor.y} L ${stubX} ${stubY}"
+              fill="none"
+              stroke="${active ? "#ef4444" : "rgba(15,23,42,0.32)"}"
+              stroke-width="${active ? 2.6 : 1.8}"
+              stroke-linecap="round" />
+            <circle cx="${anchor.x}" cy="${anchor.y}" r="${active ? 2.6 : 2.1}"
+              fill="${active ? "#ef4444" : "rgba(15,23,42,0.28)"}" />
+          </g>
+        `.trim()
+      );
+    };
+    decorate(wire.fromNodeId, wire.fromPortId);
+    decorate(wire.toNodeId, wire.toPortId);
+  });
+  const portDecorationsSvg = Array.from(portDecorations.values()).join("");
+
+  const nodesSvg = scene.nodes
+    .map((node) => {
+      if (node.type === "KEY") {
+        const out = portPosForPreview(
+          node,
+          getDefaultPortId(node, "output"),
+          icDefMap,
+          scene.portAnchors
+        );
+        const keyOn = !!opts.state?.nodeValues?.get(node.id);
+        const label = escapeHtml((node.keyChar ?? "?").toUpperCase());
+        const keyWidth = 30;
+        const keyHeight = 16;
+        const keyX = out.x - keyWidth - 10;
+        const keyY = out.y - keyHeight / 2;
+        return `
+          <g>
+            <rect x="${keyX}" y="${keyY}" width="${keyWidth}" height="${keyHeight}" rx="4"
+              fill="${keyOn ? "rgba(249,115,22,0.16)" : "#ffffff"}"
+              stroke="${keyOn ? "#f97316" : "rgba(15,23,42,0.36)"}" stroke-width="1.8" />
+            <text x="${keyX + keyWidth / 2}" y="${keyY + 11}" text-anchor="middle"
+              font-family="ui-monospace, Menlo, Monaco, Consolas, 'Courier New', monospace"
+              font-size="8.5" fill="#0f172a">${label}</text>
+            <path d="M ${keyX + keyWidth} ${out.y} C ${keyX + keyWidth + 4} ${out.y}, ${out.x - 4} ${out.y}, ${out.x} ${out.y}"
+              fill="none" stroke="${keyOn ? "#ef4444" : "rgba(15,23,42,0.18)"}"
+              stroke-width="${keyOn ? 3 : 2.2}" stroke-linecap="round" />
+          </g>
+        `.trim();
+      }
+      if (node.type === "IC") {
+        const nestedDef = icDefMap.get(node.icDefId ?? -1);
+        const nestedName = escapeHtml((nestedDef?.name ?? "IC").trim() || "IC");
+        const nestedLayout = getIcNodeLayout(nestedDef);
+        const nestedWidth = Math.max(52, Math.min(nestedLayout.nodeWidth, 132));
+        const nestedHeight = Math.max(30, Math.min(nestedLayout.bodyHeight, 82));
+        return `
+          <g>
+            <rect x="${node.x}" y="${node.y}" width="${nestedWidth}" height="${nestedHeight}" rx="8"
+              fill="#f8fafc" stroke="rgba(15,23,42,0.32)" stroke-width="1.7" />
+            <text x="${node.x + 8}" y="${node.y + 12}"
+              font-family="ui-monospace, Menlo, Monaco, Consolas, 'Courier New', monospace"
+              font-size="7.4" font-weight="700" fill="#475569"
+              textLength="${Math.max(20, nestedWidth - 16)}" lengthAdjust="spacingAndGlyphs">${nestedName}</text>
+          </g>
+        `.trim();
+      }
+      if (
+        node.type === "AND" ||
+        node.type === "NAND" ||
+        node.type === "OR" ||
+        node.type === "NOR" ||
+        node.type === "XOR" ||
+        node.type === "BUFFER" ||
+        node.type === "NOT"
+      ) {
+        return renderPreviewGateNode(
+          node,
+          opts.state?.nodeValues?.get(node.id) ?? false,
+          hasActiveIncoming(node.id, "a") || hasActiveIncoming(node.id),
+          hasActiveIncoming(node.id, "b"),
+          hasActiveOutgoing(node)
+        );
+      }
+      return renderPreviewSimpleNode(node, icDefMap, opts.state);
+    })
+    .join("");
+
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg"
+         width="${opts.width}" height="${opts.height}"
+         viewBox="${bounds.minX} ${bounds.minY} ${vbW} ${vbH}"
+         preserveAspectRatio="xMidYMid meet">
+      ${wiresSvg}
+      ${portDecorationsSvg}
+      ${nodesSvg}
+      ${ledStackSvg}
+    </svg>
+  `.trim();
+}
+
 
 
 function forceTwoInputPortLayout(el: HTMLDivElement) {
@@ -1117,6 +3422,12 @@ function forceTwoInputPortLayout(el: HTMLDivElement) {
   if (a) a.style.top = "30%";
   if (b) b.style.top = "70%";
   if (out) out.style.top = "50%";
+}
+
+function displayNameForIcDefinition(def: ICDefinition | undefined, fallbackId?: number) {
+  const trimmed = def?.name?.trim();
+  if (trimmed) return trimmed;
+  return fallbackId != null ? `IC ${fallbackId}` : "IC";
 }
 
 function renderNode(node: NodeData) {
@@ -1132,33 +3443,38 @@ function renderNode(node: NodeData) {
       el.dataset.nodeId = String(node.id);
 
       const def = icDefinitions.find((d) => d.id === node.icDefId);
-      const name = def?.name ?? "IC";
+      const name = displayNameForIcDefinition(def, node.icDefId);
+      const icLayout = getIcNodeLayout(def);
       const inCount = def?.inputNodeIds.length ?? 0;
       const outCount = def?.outputNodeIds.length ?? 0;
-      const ledCount = def?.ledNodeIds.length ?? 0;
-      const rows = Math.max(inCount, outCount, ledCount, 1);
-      const bodyHeight = Math.max(40, rows * 18 + 8);
+      const isCompactIc = icLayout.nodeWidth < 120;
+      const hasBlankPreview =
+        def?.builtinKind === "snake_status" || def?.builtinKind === "snake_column";
+      const previewGrowth =
+        def && !def.builtinKind
+          ? Math.min(56, Math.max(0, def.nodes.length - 3) * 4 + Math.max(0, def.wires.length - 2))
+          : 0;
+      const renderWidth = Math.min(220, Math.max(icLayout.nodeWidth, 120 + previewGrowth));
+      const renderBodyHeight = Math.min(
+        168,
+        Math.max(icLayout.bodyHeight, !def || def.builtinKind ? icLayout.bodyHeight : 74 + Math.min(54, def.nodes.length * 3))
+      );
+      el.style.width = `${renderWidth}px`;
+      if (isCompactIc) {
+        el.classList.add("node-ic-compact");
+      }
 
       el.innerHTML = `
-        <div class="node-header ic-header">
-          <span class="node-title ic-title">${name}</span>
-        </div>
-        <div class="node-body ic-body" style="height:${bodyHeight}px">
-          <div class="ic-leds"></div>
+        <div class="node-body ic-body${isCompactIc ? " ic-body-compact" : ""}" style="height:${renderBodyHeight}px">
+          <div class="ic-chip-namebar">
+            <span class="ic-chip-name">${escapeHtml(name)}</span>
+          </div>
+          <div class="ic-preview-shell${isCompactIc ? " ic-preview-shell-compact" : ""}${hasBlankPreview ? " ic-preview-shell-empty" : ""}">
+            <div class="ic-preview-canvas"></div>
+          </div>
         </div>
       `;
       const body = el.querySelector<HTMLDivElement>(".ic-body")!;
-      const ledsContainer =
-        body.querySelector<HTMLDivElement>(".ic-leds")!;
-
-      if (def && ledCount > 0) {
-        def.ledNodeIds.forEach((_id, idx) => {
-          const ledEl = document.createElement("div");
-          ledEl.className = "ic-led-indicator";
-          ledEl.dataset.ledIndex = String(idx);
-          ledsContainer.appendChild(ledEl);
-        });
-      }
 
       for (let i = 0; i < inCount; i++) {
         const port = document.createElement("div");
@@ -1184,21 +3500,23 @@ function renderNode(node: NodeData) {
         body.querySelectorAll<HTMLDivElement>(".ic-port-output")
       );
       inputPorts.forEach((p, idx) => {
-        const top = ((idx + 1) / (inputPorts.length + 1)) * 100;
-        p.style.top = `${top}%`;
+        const placement = getIcPortPlacement(def, "in", idx);
+        p.style.left = `${placement.x}px`;
+        p.style.right = "auto";
+        p.style.top = `${placement.y}px`;
       });
       outputPorts.forEach((p, idx) => {
-        const top = ((idx + 1) / (outputPorts.length + 1)) * 100;
-        p.style.top = `${top}%`;
+        const placement = getIcPortPlacement(def, "out", idx);
+        p.style.left = `${placement.x}px`;
+        p.style.right = "auto";
+        p.style.top = `${placement.y}px`;
       });
 
       workspace.appendChild(el);
       cacheNodeElement(node.id, el);
       makeDraggableAndSelectable(el, node);
       setupPorts(el, node);
-      if (def && def.ledNodeIds.length > 0) {
-        applyICLedColors(node, def);
-      }
+      updateICLedVisuals();
     } else {
       el = document.createElement("div");
       el.dataset.nodeId = String(node.id);
@@ -1241,13 +3559,14 @@ function renderNode(node: NodeData) {
         `;
       } else if (node.type === "KEY") {
         el.className = "node node-key";
+        const keyLabel = escapeHtml((node.keyChar || "a").slice(0, 1).toUpperCase());
         el.innerHTML = `
           <div class="node-header">
             <span class="node-title">KEY</span>
             <span class="node-port-label">Y</span>
           </div>
           <div class="node-body">
-            <div class="keycap"></div>
+            <div class="keycap">${keyLabel}</div>
             <div class="node-port node-port-output"></div>
           </div>
         `;
@@ -1275,20 +3594,36 @@ function renderNode(node: NodeData) {
           </div>
         `;
       } else if (node.type === "SPEAKER") {
+        const layout = getSpeakerLayout();
         el.className = "node node-speaker";
+        el.style.width = `${layout.nodeWidth}px`;
         el.innerHTML = `
           <div class="node-header">
             <span class="node-title">SPEAKER</span>
-            <span class="node-port-label">A</span>
+            <span class="node-port-label">4-BIT</span>
           </div>
-          <div class="node-body">
-            <div class="speaker-icon">
-              <div class="speaker-box"></div>
-              <div class="speaker-cone"></div>
-              <div class="speaker-wave speaker-wave-1"></div>
-              <div class="speaker-wave speaker-wave-2"></div>
+          <div class="node-body speaker-body">
+            ${layout.portPlacements
+              .map(
+                (placement) => `
+                  <div
+                    class="node-port node-port-input speaker-port"
+                    data-port-id="${getSpeakerPortId(node.id, placement.index)}"
+                    data-bit-index="${placement.index}"
+                    style="left:${placement.x}px; top:${placement.y}px;"
+                    title="Tone bit ${placement.labelWeight}"
+                  ></div>
+                  <div
+                    class="speaker-bit-label"
+                    data-bit-index="${placement.index}"
+                    style="left:${placement.labelX}px; top:${placement.labelY}px;"
+                  >${placement.label}</div>
+                `
+              )
+              .join("")}
+            <div class="speaker-illustration" style="left:${layout.iconX}px; top:${layout.iconY}px;">
+              ${getSpeakerIconMarkup("workspace")}
             </div>
-            <div class="node-port node-port-input"></div>
           </div>
         `;
       } else if (node.type === "DISPLAY") {
@@ -1344,6 +3679,187 @@ function renderNode(node: NodeData) {
             setDisplayPortHover(getDisplayPortId(node.id, index), false);
           });
           screen.appendChild(pixel);
+        }
+      } else if (node.type === "NUMBER_DISPLAY") {
+        const layout = getNumberDisplayLayout(node);
+        el.className = "node node-number-display";
+        el.style.width = `${layout.nodeWidth}px`;
+        el.innerHTML = `
+          <div class="node-header">
+            <span class="node-title">NUMBER</span>
+            <span class="node-port-label">${layout.digits}D</span>
+          </div>
+          <div class="node-body number-display-body">
+            <div class="number-display-groups"></div>
+          </div>
+        `;
+
+        const body = el.querySelector<HTMLDivElement>(".number-display-body")!;
+        const groups = body.querySelector<HTMLDivElement>(".number-display-groups")!;
+        body.style.height = `${layout.bodyHeight}px`;
+        groups.style.width = `${layout.screenWidth}px`;
+        groups.style.gridTemplateColumns = `repeat(${layout.digits}, ${layout.groupWidth}px)`;
+        groups.style.columnGap = `${layout.groupGap}px`;
+
+        layout.portPlacements.forEach((placement) => {
+          const port = document.createElement("div");
+          port.className = "node-port node-port-input number-display-port";
+          port.dataset.portId = getNumberDisplayPortId(node.id, placement.index);
+          port.dataset.bitIndex = String(placement.index);
+          port.style.left = `${placement.x}px`;
+          port.style.top = `${placement.y}px`;
+          port.title = `${placement.labelWeight}`;
+          body.appendChild(port);
+
+          const label = document.createElement("div");
+          label.className = `number-display-bit-label number-display-bit-label-${placement.labelPosition}`;
+          label.textContent = placement.label;
+          label.style.left = `${placement.labelX}px`;
+          label.style.top = `${placement.labelY}px`;
+          label.title = `${placement.labelWeight}`;
+          body.appendChild(label);
+        });
+
+        const digitInsetX = Math.round((layout.groupWidth - layout.digitWidth) / 2);
+        const digitInsetY = Math.round((layout.bodyHeight - layout.digitHeight) / 2);
+
+        layout.digitPositions.forEach((_digitPlacement, digitIndex) => {
+          const group = document.createElement("div");
+          group.className = "number-display-group";
+          group.style.width = `${layout.groupWidth}px`;
+          group.style.height = `${layout.bodyHeight}px`;
+
+          const digit = document.createElement("div");
+          digit.className = "number-display-digit";
+          digit.dataset.digitIndex = String(digitIndex);
+          digit.textContent = "0";
+          digit.style.left = `${digitInsetX}px`;
+          digit.style.top = `${digitInsetY}px`;
+          group.appendChild(digit);
+
+          groups.appendChild(group);
+        });
+      } else if (node.type === "GUIDE") {
+        const layout = getGuideLayout(node);
+        el.className = "node node-guide";
+        el.style.width = `${layout.width}px`;
+        el.innerHTML = `
+          <div class="node-body guide-body"></div>
+        `;
+
+        const body = el.querySelector<HTMLDivElement>(".guide-body")!;
+        body.style.height = `${layout.height}px`;
+
+        layout.slotCenters.forEach((slotCenter, idx) => {
+          const slot = document.createElement("div");
+          slot.className = "guide-slot";
+          slot.style.top = `${slotCenter}px`;
+
+          const hole = document.createElement("div");
+          hole.className = "guide-slot-hole";
+          hole.dataset.slotIndex = String(idx);
+          hole.title = `Guide slot ${idx + 1}`;
+          slot.appendChild(hole);
+          body.appendChild(slot);
+
+          const inputPort = document.createElement("div");
+          inputPort.className = "node-port node-port-input guide-port guide-port-hidden";
+          inputPort.dataset.portId = getGuideInputPortId(node.id, idx);
+          inputPort.dataset.slotIndex = String(idx);
+          inputPort.style.left = "50%";
+          inputPort.style.top = `${slotCenter}px`;
+          body.appendChild(inputPort);
+
+          const outputPort = document.createElement("div");
+          outputPort.className = "node-port node-port-output guide-port guide-port-hidden";
+          outputPort.dataset.portId = getGuideOutputPortId(node.id, idx);
+          outputPort.dataset.slotIndex = String(idx);
+          outputPort.style.left = "50%";
+          outputPort.style.top = `${slotCenter}px`;
+          body.appendChild(outputPort);
+        });
+      } else if (node.type === "CABLE") {
+        const geometry = syncCableBounds(node);
+        el.className = "node node-cable";
+        el.style.width = `${geometry.width}px`;
+        el.style.height = `${geometry.height}px`;
+        el.innerHTML = `
+          <div class="node-body cable-body">
+            <svg class="cable-lanes-svg" viewBox="0 0 ${geometry.width} ${geometry.height}" preserveAspectRatio="none" aria-hidden="true"></svg>
+            <div class="cable-end-block cable-end-block-start" data-end="start"></div>
+            <div class="cable-end-block cable-end-block-end" data-end="end"></div>
+          </div>
+        `;
+
+        const body = el.querySelector<HTMLDivElement>(".cable-body")!;
+        body.style.width = `${geometry.width}px`;
+        body.style.height = `${geometry.height}px`;
+
+        const svg = body.querySelector<SVGSVGElement>(".cable-lanes-svg")!;
+        const svgNs = "http://www.w3.org/2000/svg";
+
+        geometry.rowOffsets.forEach((rowOffset, channel) => {
+          const color = getCableChannelColor(channel);
+          const startY = geometry.startLocalY + rowOffset;
+          const endY = geometry.endLocalY + rowOffset;
+
+          const lane = document.createElementNS(svgNs, "line");
+          lane.setAttribute("class", "cable-lane-line");
+          lane.setAttribute("x1", String(geometry.startLocalX));
+          lane.setAttribute("y1", String(startY));
+          lane.setAttribute("x2", String(geometry.endLocalX));
+          lane.setAttribute("y2", String(endY));
+          lane.setAttribute("stroke", color);
+          lane.setAttribute("stroke-opacity", "0.5");
+          lane.setAttribute("stroke-width", "8");
+          lane.setAttribute("stroke-linecap", "round");
+          svg.appendChild(lane);
+
+          (["left", "right"] as CableSide[]).forEach((side) => {
+            const socketX = side === "left" ? geometry.startLocalX : geometry.endLocalX;
+            const socketY =
+              (side === "left" ? geometry.startLocalY : geometry.endLocalY) + rowOffset;
+            const socket = document.createElement("div");
+            socket.className = `cable-socket cable-socket-${side}`;
+            socket.dataset.side = side;
+            socket.dataset.channel = String(channel);
+            socket.style.left = `${socketX}px`;
+            socket.style.top = `${socketY}px`;
+            socket.style.setProperty("--cable-color", color);
+            socket.title = `Cable channel ${channel + 1}`;
+            body.appendChild(socket);
+
+            const inputPort = document.createElement("div");
+            inputPort.className = "node-port node-port-input cable-port cable-port-hidden";
+            inputPort.dataset.portId = getCablePortId(node.id, "in", side, channel);
+            inputPort.dataset.side = side;
+            inputPort.dataset.channel = String(channel);
+            inputPort.style.top = `${socketY}px`;
+            inputPort.style.left = `${socketX}px`;
+            body.appendChild(inputPort);
+
+            const outputPort = document.createElement("div");
+            outputPort.className = "node-port node-port-output cable-port cable-port-hidden";
+            outputPort.dataset.portId = getCablePortId(node.id, "out", side, channel);
+            outputPort.dataset.side = side;
+            outputPort.dataset.channel = String(channel);
+            outputPort.style.top = `${socketY}px`;
+            outputPort.style.left = `${socketX}px`;
+            body.appendChild(outputPort);
+          });
+        });
+
+        const startHandle = body.querySelector<HTMLDivElement>(".cable-end-block-start");
+        const endHandle = body.querySelector<HTMLDivElement>(".cable-end-block-end");
+        if (startHandle) {
+          startHandle.style.left = `${geometry.startLocalX}px`;
+          startHandle.style.top = `${geometry.startLocalY}px`;
+          startHandle.style.height = `${geometry.bodyHeight}px`;
+        }
+        if (endHandle) {
+          endHandle.style.left = `${geometry.endLocalX}px`;
+          endHandle.style.top = `${geometry.endLocalY}px`;
+          endHandle.style.height = `${geometry.bodyHeight}px`;
         }
 // ===== SECTION 2: Node DOM creation + workspace interactions =====
       } else if (node.type === "CLOCK") {
@@ -1416,6 +3932,15 @@ function renderNode(node: NodeData) {
       cacheNodeElement(node.id, el);
       makeDraggableAndSelectable(el, node);
       setupPorts(el, node);
+      if (node.type === "GUIDE") {
+        setupGuideSlotInteractions(el, node);
+        updateGuideVisuals();
+      }
+      if (node.type === "CABLE") {
+        setupCableSocketInteractions(el, node);
+        setupCableHandleInteractions(el, node);
+        updateCableVisuals();
+      }
 
       if (node.type === "SWITCH") setupSwitch(el, node);
       if (node.type === "BUTTON") setupButton(el, node);
@@ -1436,6 +3961,10 @@ function makeDraggableAndSelectable(el: HTMLDivElement, node: NodeData) {
   let dragging = false;
   let startX = 0;
   let startY = 0;
+  let lastDx = 0;
+  let lastDy = 0;
+  let hasLastDelta = false;
+  let didMove = false;
   const dragOrigins = new Map<number, { x: number; y: number }>();
 
   el.addEventListener("mousedown", (ev) => {
@@ -1453,12 +3982,19 @@ function makeDraggableAndSelectable(el: HTMLDivElement, node: NodeData) {
     if (target.closest(".node-port") || target.closest(".switch-shell")) {
       return;
     }
+    if (node.type === "CABLE") {
+      return;
+    }
     if (ev.button !== 0) return;
 
     dragging = true;
     const pos = workspaceCoordsFromClient(ev);
     startX = pos.x;
     startY = pos.y;
+    lastDx = 0;
+    lastDy = 0;
+    hasLastDelta = false;
+    didMove = false;
 
     const movingIds =
       selectedNodeIds.size > 0 && selectedNodeIds.has(node.id)
@@ -1478,14 +4014,19 @@ function makeDraggableAndSelectable(el: HTMLDivElement, node: NodeData) {
   function onMove(ev: MouseEvent) {
     if (!dragging) return;
     const pos = workspaceCoordsFromClient(ev);
-    const dx = pos.x - startX;
-    const dy = pos.y - startY;
+    const dx = snapCoord(pos.x - startX);
+    const dy = snapCoord(pos.y - startY);
+    if (hasLastDelta && dx === lastDx && dy === lastDy) return;
+    hasLastDelta = true;
+    lastDx = dx;
+    lastDy = dy;
+    didMove = true;
 
     dragOrigins.forEach((origin, id) => {
       const n = nodes.get(id);
       if (!n) return;
-      n.x = snapCoord(origin.x + dx);
-      n.y = snapCoord(origin.y + dy);
+      n.x = origin.x + dx;
+      n.y = origin.y + dy;
       const nEl = workspace.querySelector<HTMLDivElement>(
         `[data-node-id="${id}"]`
       );
@@ -1494,15 +4035,17 @@ function makeDraggableAndSelectable(el: HTMLDivElement, node: NodeData) {
       }
     });
 
-    markWorkspaceChanged();
     markWireGeometryDirty();
-    renderAllWires(true);
+    scheduleWireRender(true);
   }
 
   function onUp() {
     dragging = false;
     window.removeEventListener("mousemove", onMove);
     window.removeEventListener("mouseup", onUp);
+    if (didMove) {
+      markWorkspaceChanged();
+    }
   }
 }
 
@@ -1577,14 +4120,143 @@ function setupPorts(el: HTMLDivElement, node: NodeData) {
       port.addEventListener("mouseleave", () => setDisplayPortHover(portId, false));
     }
 
-    if (isOutput) {
-      port.addEventListener("mousedown", (ev) => {
-        if (previewMode) return;
-        if (ev.button !== 0) return;
-        ev.stopPropagation();
-        beginWireDrag(node.id, port, ev);
-      });
-    }
+    port.addEventListener("mousedown", (ev) => {
+      if (previewMode) return;
+      if (ev.button !== 0) return;
+      if (finishPendingCablePlacement()) return;
+      ev.stopPropagation();
+      beginWireDrag(node.id, port, ev);
+    });
+  });
+}
+
+function removeMatchingWires(predicate: (wire: Wire) => boolean) {
+  for (let i = wires.length - 1; i >= 0; i--) {
+    if (!predicate(wires[i])) continue;
+    selectedWireIds.delete(wires[i].id);
+    wires.splice(i, 1);
+  }
+}
+
+function clearGuideSlotWires(portId: string) {
+  const parsed = parseGuidePortId(portId);
+  if (!parsed) return;
+  const inputPortId = getGuideInputPortId(parsed.nodeId, parsed.slotIndex);
+  const outputPortId = getGuideOutputPortId(parsed.nodeId, parsed.slotIndex);
+  removeMatchingWires(
+    (wire) => wire.toPortId === inputPortId || wire.fromPortId === outputPortId
+  );
+}
+
+function clearCableSocketWires(portId: string) {
+  const parsed = parseCablePortId(portId);
+  if (!parsed) return;
+  const inputPortId = getCablePortId(parsed.nodeId, "in", parsed.side, parsed.channel);
+  const outputPortId = getCablePortId(parsed.nodeId, "out", parsed.side, parsed.channel);
+  removeMatchingWires(
+    (wire) => wire.toPortId === inputPortId || wire.fromPortId === outputPortId
+  );
+}
+
+function setupGuideSlotInteractions(el: HTMLDivElement, node: NodeData) {
+  el.querySelectorAll<HTMLDivElement>(".guide-slot-hole").forEach((hole) => {
+    hole.addEventListener("mousedown", (ev) => {
+      if (previewMode) return;
+      if (ev.button !== 0) return;
+      if (finishPendingCablePlacement()) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const slotIndex = Number(hole.dataset.slotIndex);
+      if (!Number.isFinite(slotIndex)) return;
+      const outputPort = findPortElementById(getGuideOutputPortId(node.id, slotIndex));
+      if (!outputPort) return;
+      beginWireDrag(node.id, outputPort, ev);
+    });
+  });
+}
+
+function setupCableSocketInteractions(el: HTMLDivElement, node: NodeData) {
+  el.querySelectorAll<HTMLDivElement>(".cable-socket").forEach((socket) => {
+    socket.addEventListener("mousedown", (ev) => {
+      if (previewMode) return;
+      if (ev.button !== 0) return;
+      if (finishPendingCablePlacement()) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const side = socket.dataset.side as CableSide | undefined;
+      const channel = Number(socket.dataset.channel);
+      if ((side !== "left" && side !== "right") || !Number.isFinite(channel)) return;
+      const outputPort = findPortElementById(getCablePortId(node.id, "out", side, channel));
+      if (!outputPort) return;
+      beginWireDrag(node.id, outputPort, ev);
+    });
+  });
+}
+
+function setupCableHandleInteractions(el: HTMLDivElement, node: NodeData) {
+  el.querySelectorAll<HTMLDivElement>(".cable-end-block").forEach((handle) => {
+    handle.addEventListener("mousedown", (ev) => {
+      if (previewMode) return;
+      if (ev.button !== 0) return;
+      if (finishPendingCablePlacement()) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      if (!selectedNodeIds.has(node.id)) {
+        handleNodeSelection(node.id, ev);
+      }
+
+      const targetEnd = handle.dataset.end === "start" ? "start" : "end";
+      const start = workspaceCoordsFromClient(ev);
+      const origin = getCableEndpoints(node);
+      let didMove = false;
+
+      const onMove = (moveEv: MouseEvent) => {
+        const pos = workspaceCoordsFromClient(moveEv);
+        const dx = pos.x - start.x;
+        const dy = pos.y - start.y;
+        const nextEndX = targetEnd === "end" ? snapCoord(origin.endX + dx) : node.cableEndX;
+        const nextEndY = targetEnd === "end" ? snapCoord(origin.endY + dy) : node.cableEndY;
+        const nextStartX = targetEnd === "start" ? snapCoord(origin.startX + dx) : node.cableStartX;
+        const nextStartY = targetEnd === "start" ? snapCoord(origin.startY + dy) : node.cableStartY;
+
+        if (
+          nextStartX === node.cableStartX &&
+          nextStartY === node.cableStartY &&
+          nextEndX === node.cableEndX &&
+          nextEndY === node.cableEndY
+        ) {
+          return;
+        }
+
+        if (targetEnd === "end") {
+          node.cableEndX = nextEndX;
+          node.cableEndY = nextEndY;
+        } else {
+          node.cableStartX = nextStartX;
+          node.cableStartY = nextStartY;
+        }
+
+        updateCableNodeGeometry(node, el);
+        markWireGeometryDirty();
+        scheduleWireRender(true);
+        didMove = true;
+      };
+
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        if (didMove) {
+          markWorkspaceChanged();
+        }
+        recomputeSignals();
+      };
+
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    });
   });
 }
 
@@ -1594,7 +4266,8 @@ function beginWireDrag(
   _ev: MouseEvent
 ) {
   const fromPortId = portEl.dataset.portId;
-  if (!fromPortId) return;
+  const startKind = portEl.dataset.portKind as PortKind | undefined;
+  if (!fromPortId || (startKind !== "input" && startKind !== "output")) return;
 
   const start = getPortCenter(portEl);
   const pathEl = createWirePath(true);
@@ -1604,6 +4277,7 @@ function beginWireDrag(
   dragState = {
     fromNodeId,
     fromPortId,
+    startKind,
     startX: start.x,
     startY: start.y,
     pathEl,
@@ -1616,12 +4290,61 @@ function beginWireDrag(
   window.addEventListener("mouseup", onWireDragEnd);
 }
 
-function resolveInputPortTarget(target: HTMLElement | null): HTMLDivElement | null {
+function resolvePortTarget(
+  target: HTMLElement | null,
+  desiredKind: PortKind
+): HTMLDivElement | null {
   if (!target) return null;
 
-  const inputPort = target.closest<HTMLDivElement>(".node-port-input");
-  if (inputPort) return inputPort;
+  const selector =
+    desiredKind === "input" ? ".node-port-input" : ".node-port-output";
+  const directPort = target.closest<HTMLDivElement>(selector);
+  if (directPort) return directPort;
 
+  const guideHole = target.closest<HTMLDivElement>(".guide-slot-hole");
+  if (guideHole) {
+    const slotIndex = Number(guideHole.dataset.slotIndex);
+    const guideNode = guideHole.closest<HTMLDivElement>(".node-guide");
+    const nodeId = Number(guideNode?.dataset.nodeId);
+    if (Number.isFinite(slotIndex) && Number.isFinite(nodeId)) {
+      return (
+        guideNode?.querySelector<HTMLDivElement>(
+          `.${desiredKind === "input" ? "node-port-input" : "node-port-output"}[data-port-id="${
+            desiredKind === "input"
+              ? getGuideInputPortId(nodeId, slotIndex)
+              : getGuideOutputPortId(nodeId, slotIndex)
+          }"]`
+        ) ?? null
+      );
+    }
+  }
+
+  const cableSocket = target.closest<HTMLDivElement>(".cable-socket");
+  if (cableSocket) {
+    const side = cableSocket.dataset.side as CableSide | undefined;
+    const channel = Number(cableSocket.dataset.channel);
+    const cableNode = cableSocket.closest<HTMLDivElement>(".node-cable");
+    const nodeId = Number(cableNode?.dataset.nodeId);
+    if (
+      (side === "left" || side === "right") &&
+      Number.isFinite(channel) &&
+      Number.isFinite(nodeId)
+    ) {
+      const portId = getCablePortId(
+        nodeId,
+        desiredKind === "input" ? "in" : "out",
+        side,
+        channel
+      );
+      return (
+        cableNode?.querySelector<HTMLDivElement>(
+          `.${desiredKind === "input" ? "node-port-input" : "node-port-output"}[data-port-id="${portId}"]`
+        ) ?? null
+      );
+    }
+  }
+
+  if (desiredKind !== "input") return null;
   const pixel = target.closest<HTMLDivElement>(".display-pixel");
   if (!pixel) return null;
 
@@ -1636,6 +4359,63 @@ function resolveInputPortTarget(target: HTMLElement | null): HTMLDivElement | nu
   );
 }
 
+function describePortKind(kind: PortKind): string {
+  return kind === "input" ? "an input" : "an output";
+}
+
+function tryAutoRouteGuideSlot(inputPort: HTMLDivElement, ev: MouseEvent): boolean {
+  if (!dragState) return false;
+  if (dragState.startKind !== "output") return false;
+
+  const guideNodeId = Number(inputPort.dataset.nodeId);
+  const inputPortId = inputPort.dataset.portId;
+  if (!Number.isFinite(guideNodeId) || !inputPortId) return false;
+
+  const guideNode = nodes.get(guideNodeId);
+  if (!guideNode || guideNode.type !== "GUIDE") return false;
+
+  const outputPortId = getGuidePairPortId(inputPortId);
+  if (!outputPortId || dragState.fromPortId === outputPortId) return false;
+
+  clearGuideSlotWires(inputPortId);
+
+  wires.push({
+    id: nextWireId++,
+    fromNodeId: dragState.fromNodeId,
+    toNodeId: guideNodeId,
+    fromPortId: dragState.fromPortId,
+    toPortId: inputPortId,
+    isActive: false,
+  });
+
+  dragState.originPort.classList.remove("port-dragging");
+  const outputPort = findPortElementById(outputPortId);
+  if (!outputPort) {
+    dragState.pathEl.remove();
+    dragState = null;
+    markWireGeometryDirty();
+    markWorkspaceChanged();
+    recomputeSignals();
+    return true;
+  }
+
+  outputPort.classList.add("port-dragging");
+  const start = getPortCenter(outputPort);
+  dragState.fromNodeId = guideNodeId;
+  dragState.fromPortId = outputPortId;
+  dragState.startKind = "output";
+  dragState.startX = start.x;
+  dragState.startY = start.y;
+  dragState.originPort = outputPort;
+
+  const pos = workspaceCoordsFromClient(ev);
+  updateWirePath(dragState.pathEl, start.x, start.y, pos.x, pos.y);
+  markWireGeometryDirty();
+  markWorkspaceChanged();
+  recomputeSignals();
+  return true;
+}
+
 function onWireDragMove(ev: MouseEvent) {
   if (!dragState) return;
   const pos = workspaceCoordsFromClient(ev);
@@ -1648,8 +4428,20 @@ function onWireDragMove(ev: MouseEvent) {
   );
 
   const target = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
-  const inputPort = resolveInputPortTarget(target);
-  const hoveredPortId = inputPort?.dataset.portId ?? null;
+  const desiredKind: PortKind = dragState.startKind === "output" ? "input" : "output";
+  const targetPort = resolvePortTarget(target, desiredKind);
+  if (
+    dragState.startKind === "output" &&
+    targetPort &&
+    target?.closest(".guide-slot-hole") &&
+    tryAutoRouteGuideSlot(targetPort, ev)
+  ) {
+    if (hoveredDisplayPortId) {
+      setDisplayPortHover(hoveredDisplayPortId, false);
+    }
+    return;
+  }
+  const hoveredPortId = desiredKind === "input" ? targetPort?.dataset.portId ?? null : null;
   if (hoveredDisplayPortId && hoveredDisplayPortId !== hoveredPortId) {
     setDisplayPortHover(hoveredDisplayPortId, false);
   }
@@ -1671,14 +4463,45 @@ function onWireDragEnd(ev: MouseEvent) {
 
   const target = document.elementFromPoint(
     ev.clientX,
-    ev.clientY
+  ev.clientY
   ) as HTMLElement | null;
-  const inputPort = resolveInputPortTarget(target);
+  const desiredKind: PortKind = dragState.startKind === "output" ? "input" : "output";
+  const targetPort = resolvePortTarget(target, desiredKind);
+  const invalidSameKindPort = resolvePortTarget(target, dragState.startKind);
 
-  if (inputPort) {
-    const toNodeId = Number(inputPort.dataset.nodeId);
-    const toPortId = inputPort.dataset.portId;
-    if (!toPortId) {
+  if (targetPort) {
+    const targetNodeId = Number(targetPort.dataset.nodeId);
+    const targetPortId = targetPort.dataset.portId;
+    if (!targetPortId) {
+      dragState.pathEl.remove();
+      dragState = null;
+      renderAllWires();
+      return;
+    }
+
+    const finalFromNodeId =
+      dragState.startKind === "output" ? dragState.fromNodeId : targetNodeId;
+    const finalToNodeId =
+      dragState.startKind === "output" ? targetNodeId : dragState.fromNodeId;
+    const finalFromPortId =
+      dragState.startKind === "output" ? dragState.fromPortId : targetPortId;
+    const finalToPortId =
+      dragState.startKind === "output" ? targetPortId : dragState.fromPortId;
+
+    const targetNode = nodes.get(finalToNodeId);
+    if (
+      targetNode?.type === "GUIDE" &&
+      getGuidePairPortId(finalToPortId) === finalFromPortId
+    ) {
+      dragState.pathEl.remove();
+      dragState = null;
+      renderAllWires();
+      return;
+    }
+    if (
+      finalFromNodeId === finalToNodeId &&
+      (targetNode?.type === "GUIDE" || targetNode?.type === "CABLE")
+    ) {
       dragState.pathEl.remove();
       dragState = null;
       renderAllWires();
@@ -1686,17 +4509,23 @@ function onWireDragEnd(ev: MouseEvent) {
     }
 
     for (let i = wires.length - 1; i >= 0; i--) {
-      if (wires[i].toPortId === toPortId) {
+      if (wires[i].toPortId === finalToPortId) {
         wires.splice(i, 1);
       }
+    }
+    if (parseGuidePortId(finalToPortId)?.role === "in") {
+      clearGuideSlotWires(finalToPortId);
+    }
+    if (parseCablePortId(finalToPortId)?.role === "in") {
+      clearCableSocketWires(finalToPortId);
     }
 
     const wire: Wire = {
       id: nextWireId++,
-      fromNodeId: dragState.fromNodeId,
-      toNodeId,
-      fromPortId: dragState.fromPortId,
-      toPortId,
+      fromNodeId: finalFromNodeId,
+      toNodeId: finalToNodeId,
+      fromPortId: finalFromPortId,
+      toPortId: finalToPortId,
       isActive: false,
     };
     wires.push(wire);
@@ -1706,6 +4535,18 @@ function onWireDragEnd(ev: MouseEvent) {
     markWorkspaceChanged();
     recomputeSignals();
     return;
+  }
+
+  if (
+    invalidSameKindPort &&
+    invalidSameKindPort.dataset.portId &&
+    invalidSameKindPort.dataset.portId !== dragState.fromPortId
+  ) {
+    toast(
+      `You connected ${describePortKind(dragState.startKind)} to ${describePortKind(
+        dragState.startKind
+      )}. That won't do anything.`
+    );
   }
 
   dragState.pathEl.remove();
@@ -1839,22 +4680,62 @@ function updateGateVisuals() {
 interface ICResult {
   outputs: boolean[];
   ledStates: boolean[];
+  portOutputs: Map<string, boolean>;
+  nodeValues: Map<number, boolean>;
+  wireStates: boolean[];
+  speakerStates: IcSpeakerState[];
+}
+
+function getComputedPortSignal(
+  node: NodeData,
+  portId: string,
+  nodeValues: Map<number, boolean>,
+  portOutputs: Map<string, boolean>
+): boolean {
+  if (node.type === "IC" || node.type === "GUIDE" || node.type === "CABLE") {
+    return portOutputs.get(portId) ?? false;
+  }
+  return nodeValues.get(node.id) ?? false;
+}
+
+function getWorkspacePortSignal(node: NodeData, portId: string): boolean {
+  if (node.type === "IC" || node.type === "GUIDE" || node.type === "CABLE") {
+    return derivedPortValues.get(portId) ?? false;
+  }
+  return node.value;
 }
 
 function simulateIC(
   def: ICDefinition,
   inputVals: boolean[],
-  stack: number[] = []
+  stack: number[] = [],
+  runtimeKey?: string
 ): ICResult {
+  if (def.builtinKind === "snake_column" || def.builtinKind === "snake_status") {
+    return simulateBuiltinSnakeIc(def, inputVals);
+  }
+
   if (stack.includes(def.id) || stack.length > 8) {
     return {
       outputs: new Array(def.outputNodeIds.length).fill(false),
       ledStates: new Array(def.ledNodeIds.length).fill(false),
+      portOutputs: new Map<string, boolean>(),
+      nodeValues: new Map<number, boolean>(),
+      wireStates: new Array(def.wires.length).fill(false),
+      speakerStates: [],
     };
   }
 
+  const runtime = runtimeKey ? ensureIcRuntimeState(def, runtimeKey) : null;
+  if (runtime) {
+    catchUpRuntimeClocks(runtime, performance.now());
+  }
   const localVals = new Map<number, boolean>();
-  def.nodes.forEach((n) => localVals.set(n.id, n.value ?? false));
+  const nodeMap = new Map<number, NodeData>();
+  (runtime ? Array.from(runtime.nodes.values()) : def.nodes).forEach((n) => {
+    nodeMap.set(n.id, n);
+    localVals.set(n.id, n.value ?? false);
+  });
 
   def.nodes.forEach((n) => {
     if (n.type === "SWITCH") {
@@ -1865,7 +4746,9 @@ function simulateIC(
     }
   });
 
-  let nestedIcOutputValues = new Map<string, boolean>();
+  let derivedOutputs = new Map<string, boolean>();
+  let finalWireStates = new Array(def.wires.length).fill(false);
+  let finalSpeakerStates: IcSpeakerState[] = [];
 
   const MAX_STEPS = Math.max(16, def.nodes.length * 4 + def.wires.length * 2);
 
@@ -1874,33 +4757,43 @@ function simulateIC(
     const incTrue = new Map<number, number>();
     const incAny = new Map<number, boolean>();
     const icInputs = new Map<number, boolean[]>();
+    const guideInputs = new Map<number, boolean[]>();
+    const cableInputs = new Map<number, { left: boolean[]; right: boolean[] }>();
+    const speakerInputs = new Map<number, boolean[]>();
+    const stepSpeakerStates: IcSpeakerState[] = [];
 
     def.nodes.forEach((n) => {
       incTrue.set(n.id, 0);
       incAny.set(n.id, false);
     });
 
-    def.wires.forEach((w) => {
-      const fromNode = def.nodes.find((n) => n.id === w.fromNodeId);
+    const nextWireStates = new Array(def.wires.length).fill(false);
+
+    def.wires.forEach((w, wireIndex) => {
+      const fromNode = nodeMap.get(w.fromNodeId);
       if (!fromNode) return;
 
-      let srcVal = false;
-      if (fromNode.type === "IC") {
-        srcVal = nestedIcOutputValues.get(w.fromPortId) ?? false;
-      } else {
-        srcVal = localVals.get(w.fromNodeId) ?? false;
-      }
+      const srcVal = getComputedPortSignal(
+        fromNode,
+        w.fromPortId,
+        localVals,
+        derivedOutputs
+      );
+      nextWireStates[wireIndex] = srcVal;
       if (!srcVal) return;
 
       const curCount = incTrue.get(w.toNodeId) ?? 0;
       incTrue.set(w.toNodeId, curCount + 1);
       incAny.set(w.toNodeId, true);
 
-      const toNode = def.nodes.find((n) => n.id === w.toNodeId);
+      const toNode = nodeMap.get(w.toNodeId);
       if (toNode?.type === "IC") {
         const [, role, suffix] = w.toPortId.split(":");
         if (role === "in") {
-          const nestedDef = icDefinitions.find((d) => d.id === toNode.icDefId);
+          const nestedDef =
+            toNode.icDefId != null
+              ? icDefinitions.find((d) => d.id === toNode.icDefId)
+              : undefined;
           if (!nestedDef) return;
           const idx = Number(suffix);
           if (idx < 0 || idx >= nestedDef.inputNodeIds.length) return;
@@ -1911,10 +4804,49 @@ function simulateIC(
           }
           arr[idx] = true;
         }
+      } else if (toNode?.type === "GUIDE") {
+        const parsed = parseGuidePortId(w.toPortId);
+        if (!parsed || parsed.role !== "in") return;
+        let arr = guideInputs.get(toNode.id);
+        if (!arr) {
+          arr = new Array(getGuideLength(toNode)).fill(false);
+          guideInputs.set(toNode.id, arr);
+        }
+        if (parsed.slotIndex >= 0 && parsed.slotIndex < arr.length) {
+          arr[parsed.slotIndex] = true;
+        }
+      } else if (toNode?.type === "CABLE") {
+        const parsed = parseCablePortId(w.toPortId);
+        if (!parsed || parsed.role !== "in") return;
+        let entry = cableInputs.get(toNode.id);
+        if (!entry) {
+          const channelCount = getCableChannels(toNode);
+          entry = {
+            left: new Array(channelCount).fill(false),
+            right: new Array(channelCount).fill(false),
+          };
+          cableInputs.set(toNode.id, entry);
+        }
+        const arr = parsed.side === "left" ? entry.left : entry.right;
+        if (parsed.channel >= 0 && parsed.channel < arr.length) {
+          arr[parsed.channel] = true;
+        }
+      } else if (toNode?.type === "SPEAKER") {
+        const [, role, suffix] = w.toPortId.split(":");
+        if (role !== "in") return;
+        const idx = Number(suffix);
+        if (!Number.isFinite(idx) || idx < 0 || idx >= SPEAKER_INPUT_WEIGHTS.length) return;
+        let arr = speakerInputs.get(toNode.id);
+        if (!arr) {
+          arr = new Array(SPEAKER_INPUT_WEIGHTS.length).fill(false);
+          speakerInputs.set(toNode.id, arr);
+        }
+        arr[idx] = true;
       }
     });
 
-    const nextNestedIcOutputValues = new Map<string, boolean>();
+    finalWireStates = nextWireStates;
+    const nextDerivedOutputs = new Map<string, boolean>();
 
     def.nodes.forEach((n) => {
       let newVal = localVals.get(n.id) ?? false;
@@ -1940,9 +4872,57 @@ function simulateIC(
           newVal = incAny.get(n.id) ?? false;
           break;
         }
-        case "SPEAKER":
+        case "SPEAKER": {
+          const toneInputs =
+            speakerInputs.get(n.id) ?? new Array(SPEAKER_INPUT_WEIGHTS.length).fill(false);
+          const toneValue = getSpeakerToneValue(toneInputs);
+          if (runtimeKey) {
+            stepSpeakerStates.push({
+              key: `${runtimeKey}/speaker:${n.id}`,
+              toneValue,
+              frequency: getSpeakerPlaybackFrequency(n, toneValue),
+            });
+          }
+          newVal = toneValue > 0;
+          break;
+        }
         case "DISPLAY": {
           newVal = incAny.get(n.id) ?? false;
+          break;
+        }
+        case "NUMBER_DISPLAY": {
+          newVal = incAny.get(n.id) ?? false;
+          break;
+        }
+        case "GUIDE": {
+          const slotInputs =
+            guideInputs.get(n.id) ?? new Array(getGuideLength(n)).fill(false);
+          const guideActive = slotInputs.some(Boolean);
+          slotInputs.forEach((_isActive, idx) => {
+            nextDerivedOutputs.set(getGuideOutputPortId(n.id, idx), guideActive);
+          });
+          newVal = guideActive;
+          break;
+        }
+        case "CABLE": {
+          const inputs = cableInputs.get(n.id) ?? {
+            left: new Array(getCableChannels(n)).fill(false),
+            right: new Array(getCableChannels(n)).fill(false),
+          };
+          for (let channel = 0; channel < inputs.left.length; channel++) {
+            const leftActive = inputs.left[channel];
+            const rightActive = inputs.right[channel];
+            const laneActive = leftActive !== rightActive;
+            nextDerivedOutputs.set(
+              getCablePortId(n.id, "out", "left", channel),
+              laneActive
+            );
+            nextDerivedOutputs.set(
+              getCablePortId(n.id, "out", "right", channel),
+              laneActive
+            );
+          }
+          newVal = inputs.left.some(Boolean) || inputs.right.some(Boolean);
           break;
         }
 // ===== SECTION 3: Signal evaluation + simulation / dynamic behaviors =====
@@ -1966,7 +4946,36 @@ function simulateIC(
         }
         case "BUFFER": {
           const any = incAny.get(n.id) ?? false;
-          newVal = any;
+          if (!runtime || !runtimeKey) {
+            newVal = any;
+            break;
+          }
+
+          const last = runtime.bufferLastInput.get(n.id) ?? false;
+          if (any !== last) {
+            runtime.bufferLastInput.set(n.id, any);
+            const delay = n.bufferDelayMs ?? 100;
+            let pending = runtime.bufferTimeouts.get(n.id);
+            if (!pending) {
+              pending = new Set<number>();
+              runtime.bufferTimeouts.set(n.id, pending);
+            }
+            const nextValue = any;
+            const timeoutId = window.setTimeout(() => {
+              const liveRuntime = icRuntimeStates.get(runtimeKey);
+              const liveNode = liveRuntime?.nodes.get(n.id);
+              if (!liveRuntime || !liveNode) return;
+              liveNode.value = nextValue;
+              const livePending = liveRuntime.bufferTimeouts.get(n.id);
+              livePending?.delete(timeoutId);
+              if (livePending && livePending.size === 0) {
+                liveRuntime.bufferTimeouts.delete(n.id);
+              }
+              scheduleSignalRecompute();
+            }, delay);
+            pending.add(timeoutId);
+          }
+          newVal = localVals.get(n.id) ?? false;
           break;
         }
         case "CLOCK": {
@@ -1982,11 +4991,17 @@ function simulateIC(
           const inputArr =
             icInputs.get(n.id) ??
             new Array(nestedDef.inputNodeIds.length).fill(false);
-          const result = simulateIC(nestedDef, inputArr, [...stack, def.id]);
+          const result = simulateIC(
+            nestedDef,
+            inputArr,
+            [...stack, def.id],
+            runtimeKey ? `${runtimeKey}/ic:${n.id}` : undefined
+          );
           result.outputs.forEach((v, idx) => {
             const portId = `${n.id}:out:${idx}`;
-            nextNestedIcOutputValues.set(portId, v);
+            nextDerivedOutputs.set(portId, v);
           });
+          stepSpeakerStates.push(...result.speakerStates);
           newVal = result.outputs.some(Boolean);
           break;
         }
@@ -1998,16 +5013,35 @@ function simulateIC(
       }
     });
 
-    nestedIcOutputValues = nextNestedIcOutputValues;
+    derivedOutputs = nextDerivedOutputs;
+    finalSpeakerStates = stepSpeakerStates;
     if (!changed) break;
+  }
+
+  if (runtime) {
+    runtime.nodes.forEach((runtimeNode, nodeId) => {
+      runtimeNode.value = localVals.get(nodeId) ?? runtimeNode.value;
+    });
+    runtime.portOutputs = new Map(derivedOutputs);
+    runtime.wireStates = finalWireStates.slice();
   }
 
   const outputs = def.outputNodeIds.map((id) => localVals.get(id) ?? false);
   const ledStates = def.ledNodeIds.map((id) => localVals.get(id) ?? false);
-  return { outputs, ledStates };
+  return {
+    outputs,
+    ledStates,
+    portOutputs: derivedOutputs,
+    nodeValues: localVals,
+    wireStates: finalWireStates,
+    speakerStates: finalSpeakerStates,
+  };
 }
 
 function recomputeSignals() {
+  signalRecomputeEpoch += 1;
+  workspaceIcResults.clear();
+  catchUpWorkspaceClocks(performance.now());
   nodes.forEach((node) => {
     if (
       node.type !== "SWITCH" &&
@@ -2023,7 +5057,8 @@ function recomputeSignals() {
   wires.forEach((wire) => {
     wire.isActive = false;
   });
-  icOutputValues = new Map<string, boolean>();
+  derivedPortValues = new Map<string, boolean>();
+  const activeIcRuntimeRoots = new Set<string>();
 
   const MAX_STEPS = Math.max(32, nodes.size * 4 + wires.length * 2);
 
@@ -2033,6 +5068,8 @@ function recomputeSignals() {
     const incomingTrueCount = new Map<number, number>();
     const incomingAnyTrue = new Map<number, boolean>();
     const icInputs = new Map<number, boolean[]>();
+    const guideInputs = new Map<number, boolean[]>();
+    const cableInputs = new Map<number, { left: boolean[]; right: boolean[] }>();
 
     nodes.forEach((node) => {
       incomingTrueCount.set(node.id, 0);
@@ -2043,12 +5080,7 @@ function recomputeSignals() {
       const from = nodes.get(wire.fromNodeId);
       if (!from) return;
 
-      let srcVal = false;
-      if (from.type === "IC") {
-        srcVal = icOutputValues.get(wire.fromPortId) ?? false;
-      } else {
-        srcVal = from.value;
-      }
+      const srcVal = getWorkspacePortSignal(from, wire.fromPortId);
       if (!srcVal) return;
 
       const toId = wire.toNodeId;
@@ -2070,6 +5102,33 @@ function recomputeSignals() {
             icInputs.set(toId, arr);
           }
           arr[idx] = true;
+        }
+      } else if (toNode?.type === "GUIDE") {
+        const parsed = parseGuidePortId(wire.toPortId);
+        if (!parsed || parsed.role !== "in") return;
+        let arr = guideInputs.get(toId);
+        if (!arr) {
+          arr = new Array(getGuideLength(toNode)).fill(false);
+          guideInputs.set(toId, arr);
+        }
+        if (parsed.slotIndex >= 0 && parsed.slotIndex < arr.length) {
+          arr[parsed.slotIndex] = true;
+        }
+      } else if (toNode?.type === "CABLE") {
+        const parsed = parseCablePortId(wire.toPortId);
+        if (!parsed || parsed.role !== "in") return;
+        let entry = cableInputs.get(toId);
+        if (!entry) {
+          const channelCount = getCableChannels(toNode);
+          entry = {
+            left: new Array(channelCount).fill(false),
+            right: new Array(channelCount).fill(false),
+          };
+          cableInputs.set(toId, entry);
+        }
+        const arr = parsed.side === "left" ? entry.left : entry.right;
+        if (parsed.channel >= 0 && parsed.channel < arr.length) {
+          arr[parsed.channel] = true;
         }
       }
     });
@@ -2093,12 +5152,12 @@ function recomputeSignals() {
         if (current && current.size === 0) {
           bufferTimeouts.delete(node.id);
         }
-        recomputeSignals();
+        scheduleSignalRecompute();
       }, delay);
       pending.add(tid);
     });
 
-    const nextIcOutputValues = new Map<string, boolean>();
+    const nextDerivedPortValues = new Map<string, boolean>();
 
     nodes.forEach((node) => {
       let newVal = node.value;
@@ -2122,6 +5181,41 @@ function recomputeSignals() {
         case "SPEAKER":
         case "DISPLAY": {
           newVal = incomingAnyTrue.get(node.id) ?? false;
+          break;
+        }
+        case "NUMBER_DISPLAY": {
+          newVal = incomingAnyTrue.get(node.id) ?? false;
+          break;
+        }
+        case "GUIDE": {
+          const slotInputs =
+            guideInputs.get(node.id) ?? new Array(getGuideLength(node)).fill(false);
+          const guideActive = slotInputs.some(Boolean);
+          slotInputs.forEach((_isActive, idx) => {
+            nextDerivedPortValues.set(getGuideOutputPortId(node.id, idx), guideActive);
+          });
+          newVal = guideActive;
+          break;
+        }
+        case "CABLE": {
+          const inputs = cableInputs.get(node.id) ?? {
+            left: new Array(getCableChannels(node)).fill(false),
+            right: new Array(getCableChannels(node)).fill(false),
+          };
+          for (let channel = 0; channel < inputs.left.length; channel++) {
+            const leftActive = inputs.left[channel];
+            const rightActive = inputs.right[channel];
+            const laneActive = leftActive !== rightActive;
+            nextDerivedPortValues.set(
+              getCablePortId(node.id, "out", "left", channel),
+              laneActive
+            );
+            nextDerivedPortValues.set(
+              getCablePortId(node.id, "out", "right", channel),
+              laneActive
+            );
+          }
+          newVal = inputs.left.some(Boolean) || inputs.right.some(Boolean);
           break;
         }
         case "NOT": {
@@ -2148,10 +5242,13 @@ function recomputeSignals() {
           const inputArr =
             icInputs.get(node.id) ??
             new Array(def.inputNodeIds.length).fill(false);
-          const result = simulateIC(def, inputArr, []);
+          const runtimeKey = `workspace:${node.id}`;
+          activeIcRuntimeRoots.add(runtimeKey);
+          const result = simulateIC(def, inputArr, [], runtimeKey);
+          workspaceIcResults.set(node.id, result);
           result.outputs.forEach((v, idx) => {
             const portId = `${node.id}:out:${idx}`;
-            nextIcOutputValues.set(portId, v);
+            nextDerivedPortValues.set(portId, v);
           });
           newVal = result.outputs.some(Boolean);
           break;
@@ -2164,7 +5261,7 @@ function recomputeSignals() {
       }
     });
 
-    icOutputValues = nextIcOutputValues;
+    derivedPortValues = nextDerivedPortValues;
 
     if (!changed) break;
   }
@@ -2172,21 +5269,30 @@ function recomputeSignals() {
   wires.forEach((wire) => {
     const from = nodes.get(wire.fromNodeId);
     if (!from) return;
-    let srcVal = false;
-    if (from.type === "IC") {
-      srcVal = icOutputValues.get(wire.fromPortId) ?? false;
-    } else {
-      srcVal = from.value;
-    }
-    wire.isActive = srcVal;
+    wire.isActive = getWorkspacePortSignal(from, wire.fromPortId);
   });
 
   updateOutputVisuals();
   updateLEDVisuals();
   updateSpeakerVisuals();
   updateDisplayVisuals();
+  updateNumberDisplayVisuals();
+  updateGuideVisuals();
+  updateCableVisuals();
   updateICLedVisuals();
   updateGateVisuals();
+  updateIcSpeakerVoices();
+  pruneUnusedIcRuntimeTrees(activeIcRuntimeRoots);
+  const activeSnakeGameIds = new Set<string>();
+  nodes.forEach((node) => {
+    if (node.type !== "IC" || node.icDefId == null) return;
+    const def = icDefinitions.find((entry) => entry.id === node.icDefId);
+    if (!def?.snakeGameId) return;
+    if (def.builtinKind === "snake_column" || def.builtinKind === "snake_status") {
+      activeSnakeGameIds.add(def.snakeGameId);
+    }
+  });
+  pruneUnusedSnakeGameStates(activeSnakeGameIds);
   renderAllWires();
 }
 
@@ -2234,6 +5340,41 @@ function updateLEDVisuals() {
   });
 }
 
+function getSpeakerInputValues(node: NodeData): boolean[] {
+  const values = new Array(SPEAKER_INPUT_WEIGHTS.length).fill(false);
+  wires.forEach((wire) => {
+    if (wire.toNodeId !== node.id) return;
+    const [, role, suffix] = wire.toPortId.split(":");
+    if (role !== "in") return;
+    const index = Number(suffix);
+    if (!Number.isFinite(index) || index < 0 || index >= values.length) return;
+    const fromNode = nodes.get(wire.fromNodeId);
+    if (!fromNode) return;
+    if (getWorkspacePortSignal(fromNode, wire.fromPortId)) {
+      values[index] = true;
+    }
+  });
+  return values;
+}
+
+function getSpeakerToneValue(inputValues: boolean[]): number {
+  return inputValues.reduce(
+    (sum, isOn, index) => sum + (isOn ? SPEAKER_INPUT_WEIGHTS[index] ?? 0 : 0),
+    0
+  );
+}
+
+function getSpeakerPlaybackFrequency(node: NodeData, toneValue: number): number {
+  const baseFrequency = getSpeakerFrequency(node);
+  if (toneValue <= 0) return baseFrequency;
+  const noteOffset = toneValue - 1;
+  return clamp(
+    baseFrequency * 2 ** (noteOffset / 12),
+    MIN_SPEAKER_FREQUENCY_HZ,
+    MAX_SPEAKER_PLAYBACK_FREQUENCY_HZ
+  );
+}
+
 function updateSpeakerVisuals() {
   nodes.forEach((node) => {
     if (node.type !== "SPEAKER") return;
@@ -2242,18 +5383,42 @@ function updateSpeakerVisuals() {
       nodeElements.get(node.id) ??
       workspace.querySelector<HTMLDivElement>(`[data-node-id="${node.id}"]`);
     const icon = el?.querySelector<HTMLDivElement>(".speaker-icon") ?? null;
-    icon?.classList.toggle("is-on", node.value);
+    const inputValues = getSpeakerInputValues(node);
+    const toneValue = getSpeakerToneValue(inputValues);
+    const normalized = toneValue / 15;
+    const levelBands = toneValue > 0 ? Math.max(1, Math.ceil(normalized * 3)) : 0;
 
-    const voice = node.value
+    icon?.classList.toggle("is-on", toneValue > 0);
+    icon?.style.setProperty("--speaker-level", normalized.toFixed(3));
+    icon?.style.setProperty("--speaker-band-count", String(levelBands));
+
+    el?.querySelectorAll<HTMLDivElement>(".speaker-port").forEach((portEl) => {
+      const bitIndex = Number(portEl.dataset.bitIndex);
+      portEl.classList.toggle("is-active", !!inputValues[bitIndex]);
+    });
+    el?.querySelectorAll<HTMLDivElement>(".speaker-bit-label").forEach((labelEl) => {
+      const bitIndex = Number(labelEl.dataset.bitIndex);
+      labelEl.classList.toggle("is-active", !!inputValues[bitIndex]);
+    });
+
+    const voice = toneValue > 0
       ? ensureSpeakerVoice(node)
       : (speakerVoices.get(node.id) ?? null);
     if (!voice) return;
 
     const ctx = voice.gain.context;
     const now = ctx.currentTime;
-    voice.oscillator.frequency.setValueAtTime(getSpeakerFrequency(node), now);
+    voice.oscillator.frequency.setTargetAtTime(
+      getSpeakerPlaybackFrequency(node, toneValue),
+      now,
+      0.03
+    );
     voice.gain.gain.cancelScheduledValues(now);
-    voice.gain.gain.setTargetAtTime(node.value ? 0.045 : 0, now, 0.015);
+    voice.gain.gain.setTargetAtTime(
+      toneValue > 0 ? 0.01 + normalized * 0.032 : 0,
+      now,
+      toneValue > 0 ? 0.025 : 0.07
+    );
   });
 
   Array.from(speakerVoices.keys()).forEach((nodeId) => {
@@ -2261,6 +5426,42 @@ function updateSpeakerVisuals() {
     if (!node || node.type !== "SPEAKER") {
       stopSpeakerVoice(nodeId);
     }
+  });
+}
+
+function updateIcSpeakerVoices() {
+  const activeKeys = new Set<string>();
+
+  workspaceIcResults.forEach((result) => {
+    result.speakerStates.forEach((speakerState) => {
+      activeKeys.add(speakerState.key);
+      const existingVoice = icSpeakerVoices.get(speakerState.key);
+      const voice =
+        speakerState.toneValue > 0
+          ? ensureIcSpeakerVoice(speakerState.key, speakerState.frequency)
+          : existingVoice ?? null;
+      if (!voice) return;
+
+      const ctx = voice.gain.context;
+      const now = ctx.currentTime;
+      const normalized = speakerState.toneValue / 15;
+
+      voice.oscillator.frequency.setTargetAtTime(
+        speakerState.frequency,
+        now,
+        0.03
+      );
+      voice.gain.gain.cancelScheduledValues(now);
+      voice.gain.gain.setTargetAtTime(
+        speakerState.toneValue > 0 ? 0.008 + normalized * 0.026 : 0,
+        now,
+        speakerState.toneValue > 0 ? 0.025 : 0.07
+      );
+    });
+  });
+
+  Array.from(icSpeakerVoices.keys()).forEach((key) => {
+    if (!activeKeys.has(key)) stopIcSpeakerVoice(key);
   });
 }
 
@@ -2284,6 +5485,168 @@ function updateDisplayVisuals() {
   });
 }
 
+function getNumberDisplayInputValues(node: NodeData): boolean[] {
+  const inputCount = getNumberDisplayInputCount(node);
+  const values = new Array(inputCount).fill(false);
+  wires.forEach((wire) => {
+    if (wire.toNodeId !== node.id) return;
+    const [, role, suffix] = wire.toPortId.split(":");
+    if (role !== "in") return;
+    const index = Number(suffix);
+    if (!Number.isFinite(index) || index < 0 || index >= inputCount) return;
+    const fromNode = nodes.get(wire.fromNodeId);
+    if (!fromNode) return;
+    if (getWorkspacePortSignal(fromNode, wire.fromPortId)) {
+      values[index] = true;
+    }
+  });
+  return values;
+}
+
+function numberDisplayCharsFromInputs(values: boolean[]): string[] {
+  const chars: string[] = [];
+  for (let offset = 0; offset < values.length; offset += NUMBER_DISPLAY_BITS_PER_DIGIT) {
+    const nibble = values.slice(offset, offset + NUMBER_DISPLAY_BITS_PER_DIGIT);
+    const weights = [1, 2, 4, 8];
+    const numeric = nibble.reduce(
+      (sum, bit, idx) => sum + (bit ? weights[idx] ?? 0 : 0),
+      0
+    );
+    chars.push(numeric.toString(16).toUpperCase());
+  }
+  return chars;
+}
+
+function updateNumberDisplayVisuals() {
+  nodes.forEach((node) => {
+    if (node.type !== "NUMBER_DISPLAY") return;
+    const el =
+      nodeElements.get(node.id) ??
+      workspace.querySelector<HTMLDivElement>(`[data-node-id="${node.id}"]`);
+    if (!el) return;
+
+    const inputValues = getNumberDisplayInputValues(node);
+    const chars = numberDisplayCharsFromInputs(inputValues);
+    el.querySelectorAll<HTMLDivElement>(".number-display-digit").forEach((digitEl, index) => {
+      digitEl.textContent = chars[index] ?? "0";
+      digitEl.classList.toggle("is-on", (chars[index] ?? "0") !== "0");
+    });
+    el.querySelectorAll<HTMLDivElement>(".number-display-port").forEach((portEl) => {
+      const bitIndex = Number(portEl.dataset.bitIndex);
+      portEl.classList.toggle("is-active", !!inputValues[bitIndex]);
+    });
+    el.querySelectorAll<HTMLDivElement>(".number-display-bit-label").forEach((labelEl, index) => {
+      labelEl.classList.toggle("is-active", !!inputValues[index]);
+    });
+  });
+}
+
+function updateGuideVisuals() {
+  nodes.forEach((node) => {
+    if (node.type !== "GUIDE") return;
+    const el =
+      nodeElements.get(node.id) ??
+      workspace.querySelector<HTMLDivElement>(`[data-node-id="${node.id}"]`);
+    if (!el) return;
+
+    const occupiedInputs = new Set(
+      wires.filter((wire) => wire.toNodeId === node.id).map((wire) => wire.toPortId)
+    );
+    const occupiedOutputs = new Set(
+      wires.filter((wire) => wire.fromNodeId === node.id).map((wire) => wire.fromPortId)
+    );
+
+    el.querySelectorAll<HTMLDivElement>(".guide-slot-hole").forEach((hole) => {
+      const slotIndex = Number(hole.dataset.slotIndex);
+      if (!Number.isFinite(slotIndex)) return;
+      const inputPortId = getGuideInputPortId(node.id, slotIndex);
+      const outputPortId = getGuideOutputPortId(node.id, slotIndex);
+      const isOccupied =
+        occupiedInputs.has(inputPortId) || occupiedOutputs.has(outputPortId);
+      const isActive = derivedPortValues.get(outputPortId) ?? false;
+      hole.classList.toggle("is-occupied", isOccupied);
+      hole.classList.toggle("is-active", isActive);
+    });
+  });
+}
+
+function updateCableVisuals() {
+  nodes.forEach((node) => {
+    if (node.type !== "CABLE") return;
+    const el =
+      nodeElements.get(node.id) ??
+      workspace.querySelector<HTMLDivElement>(`[data-node-id="${node.id}"]`);
+    if (!el) return;
+
+    const occupied = new Set<string>();
+    wires.forEach((wire) => {
+      if (wire.toNodeId === node.id) occupied.add(wire.toPortId);
+      if (wire.fromNodeId === node.id) occupied.add(wire.fromPortId);
+    });
+
+    el.querySelectorAll<HTMLDivElement>(".cable-socket").forEach((socket) => {
+      const side = socket.dataset.side as CableSide | undefined;
+      const channel = Number(socket.dataset.channel);
+      if ((side !== "left" && side !== "right") || !Number.isFinite(channel)) return;
+      const inputPortId = getCablePortId(node.id, "in", side, channel);
+      const outputPortId = getCablePortId(node.id, "out", side, channel);
+      const isOccupied = occupied.has(inputPortId) || occupied.has(outputPortId);
+      const isActive =
+        derivedPortValues.get(outputPortId) ||
+        wires.some((wire) => wire.toPortId === inputPortId && wire.isActive);
+      socket.classList.toggle("is-occupied", isOccupied);
+      socket.classList.toggle("is-active", !!isActive);
+    });
+  });
+}
+
+function renderIcPreviewInto(
+  container: HTMLElement,
+  def: ICDefinition,
+  width: number,
+  height: number,
+  state?: IcPreviewRenderState,
+  defs?: ICDefinition[]
+) {
+  container.innerHTML = renderIcPreviewSvg({
+    def,
+    icDefinitions: defs,
+    width,
+    height,
+    state,
+  });
+}
+
+function renderPaletteIcIconInto(
+  container: HTMLElement,
+  _def: ICDefinition,
+  width: number,
+  height: number
+) {
+  const chipWidth = Math.min(width - 22, 92);
+  const chipHeight = Math.min(height - 18, 54);
+  const chipX = (width - chipWidth) / 2;
+  const chipY = (height - chipHeight) / 2;
+  const leftPortX = chipX - 7;
+  const rightPortX = chipX + chipWidth + 7;
+  const portY = chipY + chipHeight / 2;
+
+  container.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg"
+         width="${width}" height="${height}"
+         viewBox="0 0 ${width} ${height}"
+         preserveAspectRatio="xMidYMid meet"
+         aria-hidden="true">
+      <rect x="${chipX}" y="${chipY}" width="${chipWidth}" height="${chipHeight}" rx="4"
+            fill="#efefef" stroke="#9ca3af" stroke-width="2" />
+      <circle cx="${leftPortX}" cy="${portY}" r="7"
+              fill="#111827" stroke="#111827" stroke-width="2" />
+      <circle cx="${rightPortX}" cy="${portY}" r="7"
+              fill="#ffffff" stroke="#6b7280" stroke-width="2" />
+    </svg>
+  `.trim();
+}
+
 function applyLightColor(node: NodeData) {
   if (node.type !== "OUTPUT" && node.type !== "LED") return;
   const el = workspace.querySelector<HTMLDivElement>(
@@ -2299,72 +5662,35 @@ function applyLightColor(node: NodeData) {
   }
 }
 
-function applyICLedColors(node: NodeData, def: ICDefinition) {
-  const icEl = workspace.querySelector<HTMLDivElement>(
-    `[data-node-id="${node.id}"]`
-  );
-  if (!icEl) return;
-  const leds = Array.from(
-    icEl.querySelectorAll<HTMLDivElement>(".ic-led-indicator")
-  );
-  leds.forEach((ledEl, idx) => {
-    const ledNodeId = def.ledNodeIds[idx];
-    const ledNode = def.nodes.find((n) => n.id === ledNodeId);
-    const color = ledNode?.lightColor || DEFAULT_LIGHT_COLOR;
-    ledEl.style.borderColor = color;
-  });
-}
-
 function updateICLedVisuals() {
   nodes.forEach((node) => {
     if (node.type !== "IC") return;
-    const def = icDefinitions.find((d) => d.id === node.icDefId);
-    if (!def || def.ledNodeIds.length === 0) return;
-
-    const inputArr = new Array(def.inputNodeIds.length).fill(false);
-
-    wires.forEach((w) => {
-      if (w.toNodeId !== node.id) return;
-      const [, role, suffix] = w.toPortId.split(":");
-      if (role !== "in") return;
-      const idx = Number(suffix);
-      if (idx < 0 || idx >= inputArr.length) return;
-      const fromNode = nodes.get(w.fromNodeId);
-      if (!fromNode) return;
-      let srcVal = false;
-      if (fromNode.type === "IC") {
-        srcVal = icOutputValues.get(w.fromPortId) ?? false;
-      } else {
-        srcVal = fromNode.value;
-      }
-      if (srcVal) inputArr[idx] = true;
-    });
-
-    const result = simulateIC(def, inputArr, []);
-    const ledStates = result.ledStates;
-
     const icEl = workspace.querySelector<HTMLDivElement>(
       `[data-node-id="${node.id}"]`
     );
     if (!icEl) return;
-    const leds = Array.from(
-      icEl.querySelectorAll<HTMLDivElement>(".ic-led-indicator")
+    icEl.classList.remove("is-active");
+
+    const previewCanvas = icEl.querySelector<HTMLDivElement>(".ic-preview-canvas");
+    const def = node.icDefId != null ? icDefinitions.find((entry) => entry.id === node.icDefId) : undefined;
+    if (!previewCanvas || !def) return;
+
+    const layout = getIcNodeLayout(def);
+    const result = workspaceIcResults.get(node.id);
+    renderIcPreviewInto(
+      previewCanvas,
+      def,
+      Math.max(92, layout.nodeWidth - 32),
+      Math.max(56, layout.bodyHeight - 22),
+      result
+        ? {
+            nodeValues: result.nodeValues,
+            wireStates: result.wireStates,
+            portOutputs: result.portOutputs,
+            ledStates: result.ledStates,
+          }
+        : undefined
     );
-    leds.forEach((ledEl, idx) => {
-      const on = !!ledStates[idx];
-      const ledNodeId = def.ledNodeIds[idx];
-      const ledNode = def.nodes.find((n) => n.id === ledNodeId);
-      const color = ledNode?.lightColor || DEFAULT_LIGHT_COLOR;
-      if (on) {
-        ledEl.classList.add("is-on");
-        ledEl.style.backgroundColor = color;
-        ledEl.style.boxShadow = `0 0 0 1px ${color}, 0 0 10px ${color}`;
-      } else {
-        ledEl.classList.remove("is-on");
-        ledEl.style.backgroundColor = "transparent";
-        ledEl.style.boxShadow = "none";
-      }
-    });
   });
 }
 
@@ -2482,12 +5808,50 @@ function hideContextMenu() {
   }
 }
 
-function uniqueICName(baseName: string): string {
+function uniqueICName(baseName: string, excludeId?: number): string {
   let name = baseName.trim() || "New IC";
-  if (!icDefinitions.some((d) => d.name === name)) return name;
+  const collides = (candidate: string) =>
+    icDefinitions.some((d) => d.id !== excludeId && d.name === candidate);
+  if (!collides(name)) return name;
   let idx = 2;
-  while (icDefinitions.some((d) => d.name === `${name}${idx}`)) idx++;
+  while (collides(`${name}${idx}`)) idx++;
   return `${name}${idx}`;
+}
+
+function rerenderWorkspaceIcInstances(_defId?: number) {
+  resetAllIcRuntimeState();
+  let touched = false;
+  nodes.forEach((node) => {
+    if (node.type !== "IC") return;
+    rerenderNode(node);
+    touched = true;
+  });
+  if (!touched) return;
+  updateSelectionStyles();
+  recomputeSignals();
+}
+
+async function renameICDefinition(def: ICDefinition) {
+  const rawName = await promptTextModal({
+    title: "Rename IC",
+    label: "IC name",
+    value: def.name,
+    hint: "This updates the palette card and every visible copy on the board.",
+    submitLabel: "Rename",
+    validate: (value) => (!value.trim() ? "Give the IC a name first." : null),
+  });
+  if (!rawName) return;
+
+  const nextName = uniqueICName(rawName, def.id);
+  if (nextName === def.name) return;
+
+  def.name = nextName;
+  refreshICPalette(def);
+  rerenderWorkspaceIcInstances(def.id);
+  if (mode === "ic-edit" && editingICId === def.id) {
+    setIcEditToolbar(def);
+  }
+  markWorkspaceChanged();
 }
 
 async function createICFromSelection() {
@@ -2687,7 +6051,7 @@ async function setSpeakerToneForSelection() {
   const next = await promptNumberModal({
     title: "Set Speaker Tone",
     label: "Frequency",
-    hint: "Lower values sound deeper. Higher values sound sharper.",
+    hint: "This sets the base pitch. The 1/2/4/8 inputs step around it like a crude 4-bit synth.",
     min: MIN_SPEAKER_FREQUENCY_HZ,
     max: MAX_SPEAKER_FREQUENCY_HZ,
     step: 10,
@@ -2728,6 +6092,108 @@ function setDisplaySizeForSelection() {
     .filter((n): n is NodeData => !!n && n.type === "DISPLAY");
   if (displays.length === 0) return;
   void setDisplaySizeForNodes(displays);
+}
+
+async function setNumberDisplayDigitsForNodes(numberDisplays: NodeData[]) {
+  if (numberDisplays.length === 0) return;
+
+  const current = getNumberDisplayDigits(numberDisplays[0]);
+  const next = await promptNumberModal({
+    title: "Set Number Display Digits",
+    label: "Digits",
+    hint: "Each digit always consumes 4 inputs. So 1 digit needs 4 inputs, 2 digits need 8, and so on.",
+    min: MIN_NUMBER_DISPLAY_DIGITS,
+    max: MAX_NUMBER_DISPLAY_DIGITS,
+    step: 1,
+    value: current,
+    submitLabel: "Apply",
+  });
+  if (next == null) return;
+
+  numberDisplays.forEach((node) => {
+    node.numberDigits = next;
+    pruneNumberDisplayWires(node);
+    rerenderNode(node);
+  });
+
+  recomputeSignals();
+  markWorkspaceChanged();
+}
+
+function setNumberDisplayDigitsForSelection() {
+  const numberDisplays = Array.from(selectedNodeIds)
+    .map((id) => nodes.get(id))
+    .filter((n): n is NodeData => !!n && n.type === "NUMBER_DISPLAY");
+  if (numberDisplays.length === 0) return;
+  void setNumberDisplayDigitsForNodes(numberDisplays);
+}
+
+async function setGuideLengthForNodes(guideNodes: NodeData[]) {
+  if (guideNodes.length === 0) return;
+
+  const current = getGuideLength(guideNodes[0]);
+  const next = await promptNumberModal({
+    title: "Set Guide Length",
+    label: "Slots",
+    hint: "Cable guides stay one tile wide. This changes how many holes the guide has.",
+    min: MIN_GUIDE_LENGTH,
+    max: MAX_GUIDE_LENGTH,
+    step: 1,
+    value: current,
+    submitLabel: "Apply",
+  });
+  if (next == null) return;
+
+  guideNodes.forEach((node) => {
+    node.guideLength = next;
+    pruneGuideWires(node);
+    rerenderNode(node);
+  });
+
+  recomputeSignals();
+  markWorkspaceChanged();
+}
+
+function setGuideLengthForSelection() {
+  const guides = Array.from(selectedNodeIds)
+    .map((id) => nodes.get(id))
+    .filter((n): n is NodeData => !!n && n.type === "GUIDE");
+  if (guides.length === 0) return;
+  void setGuideLengthForNodes(guides);
+}
+
+async function setCableChannelsForNodes(cables: NodeData[]) {
+  if (cables.length === 0) return;
+
+  const current = getCableChannels(cables[0]);
+  const next = await promptNumberModal({
+    title: "Set Cable Channels",
+    label: "Channels",
+    hint: "Each color lane is a separate wire path through the cable.",
+    min: MIN_CABLE_CHANNELS,
+    max: MAX_CABLE_CHANNELS,
+    step: 1,
+    value: current,
+    submitLabel: "Apply",
+  });
+  if (next == null) return;
+
+  cables.forEach((node) => {
+    node.cableChannels = next;
+    pruneCableWires(node);
+    rerenderNode(node);
+  });
+
+  recomputeSignals();
+  markWorkspaceChanged();
+}
+
+function setCableChannelsForSelection() {
+  const cables = Array.from(selectedNodeIds)
+    .map((id) => nodes.get(id))
+    .filter((n): n is NodeData => !!n && n.type === "CABLE");
+  if (cables.length === 0) return;
+  void setCableChannelsForNodes(cables);
 }
 
 function setupDelayButton(el: HTMLDivElement, node: NodeData) {
@@ -2902,7 +6368,27 @@ function pasteSelection() {
     newNode.speakerFrequencyHz = n.speakerFrequencyHz;
     newNode.displayWidth = n.displayWidth;
     newNode.displayHeight = n.displayHeight;
-    if (newNode.type === "DISPLAY") {
+    newNode.numberDigits = n.numberDigits;
+    newNode.guideLength = n.guideLength;
+    newNode.cableChannels = n.cableChannels;
+    newNode.cableLength = n.cableLength;
+    newNode.cableStartX =
+      typeof n.cableStartX === "number" ? n.cableStartX + lastPasteOffset : undefined;
+    newNode.cableStartY =
+      typeof n.cableStartY === "number" ? n.cableStartY + lastPasteOffset : undefined;
+    newNode.cableEndX =
+      typeof n.cableEndX === "number" ? n.cableEndX + lastPasteOffset : undefined;
+    newNode.cableEndY =
+      typeof n.cableEndY === "number" ? n.cableEndY + lastPasteOffset : undefined;
+    if (
+      newNode.type === "DISPLAY" ||
+      newNode.type === "NUMBER_DISPLAY" ||
+      newNode.type === "GUIDE" ||
+      newNode.type === "CABLE"
+    ) {
+      if (newNode.type === "CABLE") {
+        syncCableBounds(newNode);
+      }
       rerenderNode(newNode);
     }
     initializeNodeDynamicBehavior(newNode);
@@ -3002,18 +6488,30 @@ function showContextMenu(
     return n && n.type === "DISPLAY";
   });
 
+  const hasNumberDisplayNode = Array.from(selectedNodeIds).some((id) => {
+    const n = nodes.get(id);
+    return n && n.type === "NUMBER_DISPLAY";
+  });
+
+  const hasGuideNode = Array.from(selectedNodeIds).some((id) => {
+    const n = nodes.get(id);
+    return n && n.type === "GUIDE";
+  });
+
+  const hasCableNode = Array.from(selectedNodeIds).some((id) => {
+    const n = nodes.get(id);
+    return n && n.type === "CABLE";
+  });
+
   function addItem(label: string, handler: () => void, disabled?: boolean) {
+    if (disabled) return;
     const item = document.createElement("button");
     item.className = "context-menu-item";
     item.textContent = label;
-    if (disabled) {
-      item.disabled = true;
-    } else {
-      item.addEventListener("click", () => {
-        hideContextMenu();
-        handler();
-      });
-    }
+    item.addEventListener("click", () => {
+      hideContextMenu();
+      handler();
+    });
     contextMenuEl!.appendChild(item);
   }
 
@@ -3042,6 +6540,21 @@ function showContextMenu(
       () => void setDisplaySizeForSelection(),
       !hasDisplayNode
     );
+    addItem(
+      "Set Number Display Digits…",
+      () => void setNumberDisplayDigitsForSelection(),
+      !hasNumberDisplayNode
+    );
+    addItem(
+      "Set Guide Length…",
+      () => void setGuideLengthForSelection(),
+      !hasGuideNode
+    );
+    addItem(
+      "Set Cable Channels…",
+      () => void setCableChannelsForSelection(),
+      !hasCableNode
+    );
     addItem("Delete", () => deleteSelection(), !hasAny);
   } else if (targetKind === "note") {
     addItem("Copy", () => copySelection(), !hasNote);
@@ -3060,75 +6573,139 @@ function showContextMenu(
   document.body.appendChild(contextMenuEl);
 }
 
-function addICPaletteButton(def: ICDefinition) {
-  const btn = document.createElement("button");
-  btn.type = "button";
+function updateIcToolboxPickUi() {
+  const isPicking = !!pendingIcToolboxPickResolve;
+  paletteUploadBanner.hidden = !isPicking;
+  palette.classList.toggle("palette-is-picking-upload", isPicking);
+  palette
+    .querySelectorAll<HTMLElement>(".palette-item-ic")
+    .forEach((card) => card.classList.toggle("is-upload-eligible", isPicking));
+}
+
+function resolvePendingIcToolboxPick(def: ICDefinition | null) {
+  const resolve = pendingIcToolboxPickResolve;
+  pendingIcToolboxPickResolve = null;
+  updateIcToolboxPickUi();
+  resolve?.(def);
+}
+
+async function promptIcDefinitionForToolboxUpload(): Promise<ICDefinition | null> {
+  if (icDefinitions.length === 0) {
+    toast("Create an IC first, then upload it from the left column.");
+    return null;
+  }
+
+  if (pendingIcToolboxPickResolve) {
+    resolvePendingIcToolboxPick(null);
+  }
+
+  cancelActivePaletteDrag();
+  finishPendingCablePlacement();
+
+  return await new Promise((resolve) => {
+    pendingIcToolboxPickResolve = resolve;
+    updateIcToolboxPickUi();
+    toast("Select an IC from the left column to upload it.");
+  });
+}
+
+function addICPaletteButton(def: ICDefinition, beforeEl?: ChildNode | null) {
+  if (def.paletteHidden) return;
+  paletteCustomIcSection.hidden = false;
+  const btn = document.createElement("div");
   btn.className = "palette-item palette-item-ic";
-  
   btn.dataset.icId = String(def.id);
   btn.innerHTML = `
     <div class="palette-node palette-ic-node">
-      <div class="node-header">
-        <span class="node-title">${def.name}</span>
+      <div class="ic-mini-header">
+        <span class="node-title ic-mini-title">${escapeHtml(def.name)}</span>
       </div>
-      <div class="node-body">
-        <div class="ic-mini-io">
-          <div class="ic-mini-inputs"></div>
-          <div class="ic-mini-outputs"></div>
+      <div class="node-body ic-mini-body">
+        <div class="ic-mini-preview"></div>
+        <div class="ic-mini-footer">
+          <div class="ic-card-actions">
+            <button class="ic-card-button ic-rename-button" type="button">Rename</button>
+            <button class="ic-card-button ic-edit-button" type="button">Edit</button>
+          </div>
         </div>
-        <button class="ic-edit-button" type="button">EDIT</button>
       </div>
     </div>
   `;
-  palette.appendChild(btn);
+  if (beforeEl) paletteIcGrid.insertBefore(btn, beforeEl);
+  else paletteIcGrid.appendChild(btn);
 
-  const inContainer = btn.querySelector<HTMLDivElement>(".ic-mini-inputs")!;
-  const outContainer = btn.querySelector<HTMLDivElement>(".ic-mini-outputs")!;
-  inContainer.innerHTML = "";
-  outContainer.innerHTML = "";
-  def.inputNodeIds.forEach(() => {
-    const dot = document.createElement("div");
-    dot.className = "ic-mini-dot";
-    inContainer.appendChild(dot);
-  });
-  def.outputNodeIds.forEach(() => {
-    const dot = document.createElement("div");
-    dot.className = "ic-mini-dot";
-    outContainer.appendChild(dot);
-  });
+  const preview = btn.querySelector<HTMLDivElement>(".ic-mini-preview")!;
+  renderPaletteIcIconInto(preview, def, 92, 42);
 
   const coreBtn = btn.querySelector<HTMLDivElement>(".palette-ic-node")!;
   coreBtn.addEventListener("click", () => {
     if (previewMode) return;
+    if (pendingIcToolboxPickResolve) {
+      resolvePendingIcToolboxPick(def);
+      return;
+    }
+    finishPendingCablePlacement();
     const center = visibleWorkspaceCenter();
     instantiateIC(def.id, center.x, center.y);
   });
 
-  (btn as unknown as HTMLElement).draggable = true;
+  btn.draggable = true;
   btn.addEventListener("dragstart", (ev) => {
-    if (previewMode) return;
+    if (previewMode || pendingIcToolboxPickResolve) {
+      ev.preventDefault();
+      return;
+    }
+    cancelActivePaletteDrag();
+    finishPendingCablePlacement();
     paletteDragPayload = { icId: def.id };
     if (ev.dataTransfer) {
       ev.dataTransfer.setData("text/plain", "IC");
       ev.dataTransfer.setDragImage(transparentDragImage, 0, 0);
     }
   });
+  btn.addEventListener("dragend", (ev) => {
+    if (previewMode) return;
+    if (tryFinalizePaletteDragFromClientPoint(ev.clientX, ev.clientY)) return;
+    cancelActivePaletteDrag();
+  });
 
   const editBtn = btn.querySelector<HTMLButtonElement>(".ic-edit-button")!;
   editBtn.addEventListener("click", (ev) => {
     ev.stopPropagation();
     if (previewMode) return;
+    if (pendingIcToolboxPickResolve) {
+      resolvePendingIcToolboxPick(def);
+      return;
+    }
     enterICEdit(def.id);
   });
+
+  const renameBtn = btn.querySelector<HTMLButtonElement>(".ic-rename-button")!;
+  renameBtn.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    if (previewMode) return;
+    if (pendingIcToolboxPickResolve) {
+      resolvePendingIcToolboxPick(def);
+      return;
+    }
+    void renameICDefinition(def);
+  });
+
+  updateIcToolboxPickUi();
+}
+
+function updateCustomIcPaletteSectionVisibility() {
+  paletteCustomIcSection.hidden = paletteIcGrid.children.length === 0;
 }
 
 function refreshICPalette(def: ICDefinition) {
-  const btn = palette.querySelector<HTMLDivElement>(
+  const btn = palette.querySelector<HTMLElement>(
     `.palette-item-ic[data-ic-id="${def.id}"]`
   );
   if (!btn) return;
+  const nextSibling = btn.nextSibling;
   btn.remove();
-  addICPaletteButton(def);
+  addICPaletteButton(def, nextSibling);
 }
 
 function instantiateIC(
@@ -3174,6 +6751,7 @@ function enterICEdit(defId: number) {
   mainNotesSnapshot = new Map(
     Array.from(notes.entries()).map(([id, note]) => [id, { ...note }])
   );
+  resetAllIcRuntimeState();
   nodes.forEach((n) => teardownNodeDynamicBehavior(n.id));
 
   workspace.querySelectorAll<HTMLDivElement>(".node").forEach((el) => el.remove());
@@ -3209,17 +6787,7 @@ function enterICEdit(defId: number) {
     });
   });
   recomputeSignals();
-
-  icEditorBar = document.createElement("div");
-  icEditorBar.className = "ic-editor-bar";
-  icEditorBar.innerHTML = `
-    <span>Editing IC: <strong>${def.name}</strong></span>
-    <button type="button" class="ic-editor-done">Done</button>
-  `;
-  workspaceWrapper.appendChild(icEditorBar);
-  icEditorBar
-    .querySelector<HTMLButtonElement>(".ic-editor-done")!
-    .addEventListener("click", exitICEdit);
+  setIcEditToolbar(def);
 }
 
 function exitICEdit() {
@@ -3228,6 +6796,7 @@ function exitICEdit() {
   if (!def || !mainNodesSnapshot || !mainWiresSnapshot || !mainNotesSnapshot) {
     mode = "main";
     editingICId = null;
+    setIcEditToolbar(null);
     return;
   }
 
@@ -3263,6 +6832,7 @@ function exitICEdit() {
     .map((n) => n.id);
 
   refreshICPalette(def);
+  resetAllIcRuntimeState();
 
   workspace.querySelectorAll<HTMLDivElement>(".node").forEach((el) => el.remove());
   workspace.querySelectorAll<HTMLDivElement>(".workspace-note").forEach((el) => el.remove());
@@ -3295,6 +6865,7 @@ function exitICEdit() {
     icEditorBar.remove();
     icEditorBar = null;
   }
+  setIcEditToolbar(null);
 
   mode = "main";
   editingICId = null;
@@ -3474,9 +7045,136 @@ function finishMarquee(ev: MouseEvent) {
   updateSelectionStyles();
 }
 
+function finishPendingCablePlacement(): boolean {
+  if (pendingCablePlacementId == null) return false;
+  pendingCablePlacementId = null;
+  recomputeSignals();
+  markWorkspaceChanged();
+  return true;
+}
+
+function cancelActivePaletteDrag() {
+  const activeNodeId = activePaletteDragNodeId;
+  const shouldRemoveNode = activePaletteDragCreatedNode && activeNodeId != null;
+
+  activePaletteDragNodeId = null;
+  activePaletteDragCreatedNode = false;
+  paletteDragPayload = null;
+
+  if (!shouldRemoveNode || activeNodeId == null) return;
+
+  for (let i = wires.length - 1; i >= 0; i--) {
+    const wire = wires[i];
+    if (wire.fromNodeId === activeNodeId || wire.toNodeId === activeNodeId) {
+      selectedWireIds.delete(wire.id);
+      wires.splice(i, 1);
+    }
+  }
+
+  const node = nodes.get(activeNodeId);
+  if (node) {
+    teardownNodeDynamicBehavior(activeNodeId);
+    nodes.delete(activeNodeId);
+  }
+
+  selectedNodeIds.delete(activeNodeId);
+  const el =
+    nodeElements.get(activeNodeId) ??
+    workspace.querySelector<HTMLDivElement>(`[data-node-id="${activeNodeId}"]`);
+  uncacheNodeElement(activeNodeId);
+  el?.remove();
+
+  markWireGeometryDirty();
+  recomputeSignals();
+  markWorkspaceChanged();
+}
+
+function isClientPointInsideWorkspace(clientX: number, clientY: number): boolean {
+  const rect = workspaceWrapper.getBoundingClientRect();
+  return (
+    clientX >= rect.left &&
+    clientX <= rect.right &&
+    clientY >= rect.top &&
+    clientY <= rect.bottom
+  );
+}
+
+function materializePaletteDragNodeAt(baseX: number, baseY: number): NodeData | null {
+  if (activePaletteDragNodeId != null) {
+    return nodes.get(activePaletteDragNodeId) ?? null;
+  }
+  if (paletteDragPayload?.icId != null) {
+    const node = instantiateIC(paletteDragPayload.icId, baseX, baseY);
+    if (!node) return null;
+    activePaletteDragNodeId = node.id;
+    activePaletteDragCreatedNode = true;
+    return node;
+  }
+  if (paletteDragPayload?.type) {
+    const node = createNode(paletteDragPayload.type, baseX, baseY);
+    activePaletteDragNodeId = node.id;
+    activePaletteDragCreatedNode = true;
+    return node;
+  }
+  return null;
+}
+
+function positionPaletteDragNode(node: NodeData, baseX: number, baseY: number) {
+  if (node.type === "CABLE") {
+    const nextX = snapCoord(baseX);
+    const nextY = snapCoord(baseY);
+    const dx = nextX - node.x;
+    const dy = nextY - node.y;
+    if (dx === 0 && dy === 0) return;
+    moveCableBy(node, dx, dy);
+    updateCableNodeGeometry(node);
+  } else {
+    const nextX = snapCoord(baseX);
+    const nextY = snapCoord(baseY);
+    if (nextX === node.x && nextY === node.y) return;
+    node.x = nextX;
+    node.y = nextY;
+    const el =
+      nodeElements.get(node.id) ??
+      workspace.querySelector<HTMLDivElement>(`[data-node-id="${node.id}"]`);
+    if (el) {
+      applyNodeTransform(el, node);
+    }
+  }
+  markWireGeometryDirty();
+  scheduleWireRender(true);
+}
+
+function finalizePaletteDragNode(node: NodeData) {
+  if (node.type === "CABLE") {
+    syncCableBounds(node);
+    pendingCablePlacementId = node.id;
+    pendingCableAnchorX = node.cableStartX ?? getCableGeometry(node).startX;
+    pendingCableAnchorY = node.cableStartY ?? getCableGeometry(node).startY;
+  }
+  activePaletteDragNodeId = null;
+  activePaletteDragCreatedNode = false;
+  paletteDragPayload = null;
+  recomputeSignals();
+}
+
+function tryFinalizePaletteDragFromClientPoint(clientX: number, clientY: number): boolean {
+  if (!paletteDragPayload && activePaletteDragNodeId == null) return false;
+  if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
+  if (!isClientPointInsideWorkspace(clientX, clientY)) return false;
+
+  const pos = workspaceCoordsFromClientPoint(clientX, clientY);
+  const node = materializePaletteDragNodeAt(pos.x, pos.y);
+  if (!node) return false;
+  positionPaletteDragNode(node, pos.x, pos.y);
+  finalizePaletteDragNode(node);
+  return true;
+}
+
 function setupPrimitivePaletteButton(btn: HTMLButtonElement, type: NodeType) {
   btn.addEventListener("click", () => {
     if (previewMode) return;
+    finishPendingCablePlacement();
     const center = visibleWorkspaceCenter();
     createNode(
       type,
@@ -3488,11 +7186,18 @@ function setupPrimitivePaletteButton(btn: HTMLButtonElement, type: NodeType) {
   btn.draggable = true;
   btn.addEventListener("dragstart", (ev) => {
     if (previewMode) return;
+    cancelActivePaletteDrag();
+    finishPendingCablePlacement();
     paletteDragPayload = { type };
     if (ev.dataTransfer) {
       ev.dataTransfer.setData("text/plain", type);
       ev.dataTransfer.setDragImage(transparentDragImage, 0, 0);
     }
+  });
+  btn.addEventListener("dragend", (ev) => {
+    if (previewMode) return;
+    if (tryFinalizePaletteDragFromClientPoint(ev.clientX, ev.clientY)) return;
+    cancelActivePaletteDrag();
   });
 }
 
@@ -3502,6 +7207,20 @@ palette
     const type = btn.dataset.nodeType as NodeType;
     setupPrimitivePaletteButton(btn, type);
   });
+
+palette.addEventListener("mousedown", () => {
+  if (previewMode) return;
+  finishPendingCablePlacement();
+});
+
+sidebar.addEventListener(
+  "wheel",
+  (ev) => {
+    ev.stopPropagation();
+  },
+  { passive: true }
+);
+
 // Replace CSS-based gate icons in the palette with inline SVG (prevents faint ghost glyphs)
 const paletteGateTypes: InlineGateType[] = ["AND", "OR", "NAND", "NOR", "XOR", "NOT", "BUFFER"];
 paletteGateTypes.forEach((t) => {
@@ -3538,41 +7257,67 @@ workspace.addEventListener("dragover", (ev) => {
   const baseX = pos.x;
   const baseY = pos.y;
 
-  if (activePaletteDragNodeId === null) {
-    if (paletteDragPayload.icId != null) {
-      const node = instantiateIC(paletteDragPayload.icId, baseX, baseY);
-      if (node) activePaletteDragNodeId = node.id;
-    } else if (paletteDragPayload.type) {
-      const node = createNode(paletteDragPayload.type, baseX, baseY);
-      activePaletteDragNodeId = node.id;
-    }
-  } else {
-    const node = nodes.get(activePaletteDragNodeId);
-    if (!node) return;
-    node.x = snapCoord(baseX);
-    node.y = snapCoord(baseY);
-    const el = workspace.querySelector<HTMLDivElement>(
-      `[data-node-id="${node.id}"]`
-    );
-    if (el) {
-      applyNodeTransform(el, node);
-    }
-    markWireGeometryDirty();
-    renderAllWires(true);
-  }
+  const node = materializePaletteDragNodeAt(baseX, baseY);
+  if (!node) return;
+  positionPaletteDragNode(node, baseX, baseY);
 });
 
 workspace.addEventListener("drop", (ev) => {
   ev.preventDefault();
   if (previewMode) return;
-  activePaletteDragNodeId = null;
-  paletteDragPayload = null;
-  recomputeSignals();
+  const pos = workspaceCoordsFromClient(ev);
+  const droppedNode = materializePaletteDragNodeAt(pos.x, pos.y);
+  if (!droppedNode) {
+    cancelActivePaletteDrag();
+    return;
+  }
+  positionPaletteDragNode(droppedNode, pos.x, pos.y);
+  finalizePaletteDragNode(droppedNode);
+});
+
+window.addEventListener("mousemove", (ev) => {
+  if (pendingCablePlacementId == null) return;
+  const wrapperRect = workspaceWrapper.getBoundingClientRect();
+  if (
+    ev.clientX < wrapperRect.left ||
+    ev.clientX > wrapperRect.right ||
+    ev.clientY < wrapperRect.top ||
+    ev.clientY > wrapperRect.bottom
+  ) {
+    return;
+  }
+  const node = nodes.get(pendingCablePlacementId);
+  if (!node || node.type !== "CABLE") return;
+
+  const pos = workspaceCoordsFromClient(ev);
+  const nextStartX = snapCoord(pendingCableAnchorX);
+  const nextStartY = snapCoord(pendingCableAnchorY);
+  const nextEndX = snapCoord(pos.x);
+  const nextEndY = snapCoord(pos.y);
+  if (
+    nextStartX === node.cableStartX &&
+    nextStartY === node.cableStartY &&
+    nextEndX === node.cableEndX &&
+    nextEndY === node.cableEndY
+  ) {
+    return;
+  }
+  node.cableStartX = nextStartX;
+  node.cableStartY = nextStartY;
+  node.cableEndX = nextEndX;
+  node.cableEndY = nextEndY;
+  updateCableNodeGeometry(node);
+  markWireGeometryDirty();
+  scheduleWireRender(true);
 });
 
 workspace.addEventListener("mousedown", (ev) => {
   if (previewMode) return;
   if (ev.button !== 0) return;
+
+  if (finishPendingCablePlacement()) {
+    return;
+  }
 
   const target = ev.target as HTMLElement;
   if (
@@ -3778,7 +7523,7 @@ function handleKeyNodes(ev: KeyboardEvent, isDown: boolean): boolean {
         changed = true;
         window.setTimeout(() => {
           n.value = false;
-          recomputeSignals();
+          scheduleSignalRecompute();
         }, 120);
       }
     }
@@ -3920,7 +7665,6 @@ previewToggle.addEventListener("click", () => {
   setPreviewMode(!previewMode);
   hideContextMenu();
   clearSelection();
-  toast(previewMode ? "Simulation enabled (keys work in Simulate mode)." : "Simulation disabled.");
 });
 
 function getDefaultPortId(
@@ -3995,6 +7739,22 @@ function makePresetNode(id: number, type: NodeType, x: number, y: number): NodeD
     node.displayWidth = DEFAULT_DISPLAY_WIDTH;
     node.displayHeight = DEFAULT_DISPLAY_HEIGHT;
   }
+  if (type === "NUMBER_DISPLAY") {
+    node.numberDigits = DEFAULT_NUMBER_DISPLAY_DIGITS;
+  }
+  if (type === "GUIDE") {
+    node.guideLength = DEFAULT_GUIDE_LENGTH;
+  }
+  if (type === "CABLE") {
+    node.cableChannels = DEFAULT_CABLE_CHANNELS;
+    node.cableLength = DEFAULT_CABLE_LENGTH;
+    const layout = getCableLayout(node);
+    node.cableStartX = snapCoord(node.x + CABLE_END_WIDTH / 2);
+    node.cableStartY = snapCoord(node.y + layout.bodyHeight / 2);
+    node.cableEndX = snapCoord(node.cableStartX + DEFAULT_CABLE_LENGTH - CABLE_END_WIDTH);
+    node.cableEndY = node.cableStartY;
+    syncCableBounds(node);
+  }
 
   return node;
 }
@@ -4055,13 +7815,270 @@ function buildHalfAdderDefinition(): ICDefinition {
   };
 }
 
+function buildSnakeStatusDefinition(
+  id: number,
+  gameId: string,
+  gridWidth: number,
+  gridHeight: number,
+  tickMs: number
+): ICDefinition {
+  const inputW = makePresetNode(1, "SWITCH", 24, 28);
+  const inputA = makePresetNode(2, "SWITCH", 24, 64);
+  const inputS = makePresetNode(3, "SWITCH", 24, 100);
+  const inputD = makePresetNode(4, "SWITCH", 24, 136);
+  const horizontal = makePresetNode(5, "OR", 156, 52);
+  const vertical = makePresetNode(6, "OR", 156, 120);
+  const pulse = makePresetNode(7, "CLOCK", 156, 190);
+  pulse.clockDelayMs = tickMs;
+  const board = makePresetNode(8, "DISPLAY", 292, 38);
+  board.displayWidth = 6;
+  board.displayHeight = 4;
+  const food = makePresetNode(9, "OUTPUT", 892, 58);
+  const crash = makePresetNode(10, "OUTPUT", 892, 118);
+  food.lightColor = "#22c55e";
+  crash.lightColor = "#ef4444";
+  const columnBuffers = Array.from({ length: gridWidth }, (_, columnIndex) => {
+    const node = makePresetNode(11 + columnIndex, "BUFFER", 500 + (columnIndex % 6) * 58, 34 + Math.floor(columnIndex / 6) * 42);
+    node.bufferDelayMs = 80;
+    return node;
+  });
+  const columnOutputs = Array.from({ length: gridWidth }, (_, columnIndex) =>
+    makePresetNode(11 + gridWidth + columnIndex, "OUTPUT", 892, 182 + columnIndex * 22)
+  );
+  const nodes = [
+    inputW,
+    inputA,
+    inputS,
+    inputD,
+    horizontal,
+    vertical,
+    pulse,
+    board,
+    food,
+    crash,
+    ...columnBuffers,
+    ...columnOutputs,
+  ];
+
+  const wires: ICDefinition["wires"] = [
+    {
+      fromNodeId: inputA.id,
+      toNodeId: horizontal.id,
+      fromPortId: getDefaultPortId(inputA, "output"),
+      toPortId: getDefaultPortId(horizontal, "input", "a"),
+    },
+    {
+      fromNodeId: inputD.id,
+      toNodeId: horizontal.id,
+      fromPortId: getDefaultPortId(inputD, "output"),
+      toPortId: getDefaultPortId(horizontal, "input", "b"),
+    },
+    {
+      fromNodeId: inputW.id,
+      toNodeId: vertical.id,
+      fromPortId: getDefaultPortId(inputW, "output"),
+      toPortId: getDefaultPortId(vertical, "input", "a"),
+    },
+    {
+      fromNodeId: inputS.id,
+      toNodeId: vertical.id,
+      fromPortId: getDefaultPortId(inputS, "output"),
+      toPortId: getDefaultPortId(vertical, "input", "b"),
+    },
+    {
+      fromNodeId: horizontal.id,
+      toNodeId: board.id,
+      fromPortId: getDefaultPortId(horizontal, "output"),
+      toPortId: getDefaultPortId(board, "input", 2),
+    },
+    {
+      fromNodeId: horizontal.id,
+      toNodeId: board.id,
+      fromPortId: getDefaultPortId(horizontal, "output"),
+      toPortId: getDefaultPortId(board, "input", 3),
+    },
+    {
+      fromNodeId: vertical.id,
+      toNodeId: board.id,
+      fromPortId: getDefaultPortId(vertical, "output"),
+      toPortId: getDefaultPortId(board, "input", 8),
+    },
+    {
+      fromNodeId: vertical.id,
+      toNodeId: board.id,
+      fromPortId: getDefaultPortId(vertical, "output"),
+      toPortId: getDefaultPortId(board, "input", 14),
+    },
+    {
+      fromNodeId: pulse.id,
+      toNodeId: board.id,
+      fromPortId: getDefaultPortId(pulse, "output"),
+      toPortId: getDefaultPortId(board, "input", 10),
+    },
+    {
+      fromNodeId: pulse.id,
+      toNodeId: food.id,
+      fromPortId: getDefaultPortId(pulse, "output"),
+      toPortId: getDefaultPortId(food, "input"),
+    },
+    {
+      fromNodeId: vertical.id,
+      toNodeId: crash.id,
+      fromPortId: getDefaultPortId(vertical, "output"),
+      toPortId: getDefaultPortId(crash, "input"),
+    },
+  ];
+
+  columnBuffers.forEach((bufferNode, columnIndex) => {
+    const sourceNode =
+      columnIndex % 3 === 0 ? pulse : columnIndex % 2 === 0 ? horizontal : vertical;
+    wires.push({
+      fromNodeId: sourceNode.id,
+      toNodeId: bufferNode.id,
+      fromPortId: getDefaultPortId(sourceNode, "output"),
+      toPortId: getDefaultPortId(bufferNode, "input"),
+    });
+    const outputNode = columnOutputs[columnIndex]!;
+    wires.push({
+      fromNodeId: bufferNode.id,
+      toNodeId: outputNode.id,
+      fromPortId: getDefaultPortId(bufferNode, "output"),
+      toPortId: getDefaultPortId(outputNode, "input"),
+    });
+  });
+
+  return {
+    id,
+    name: "SNAKE GAME",
+    nodes,
+    wires,
+    inputNodeIds: [inputW.id, inputA.id, inputS.id, inputD.id],
+    outputNodeIds: [food.id, crash.id, ...columnOutputs.map((node) => node.id)],
+    ledNodeIds: [],
+    paletteHidden: true,
+    compactLayout: {
+      bodyHeight: 720,
+      nodeWidth: 236,
+      portPitch: 24,
+    },
+    builtinKind: "snake_status",
+    snakeGameId: gameId,
+    snakeGridWidth: gridWidth,
+    snakeGridHeight: gridHeight,
+    snakeCellScale: 1,
+    snakeTickMs: tickMs,
+  };
+}
+
+function buildSnakeColumnDefinition(
+  id: number,
+  gameId: string,
+  columnIndex: number,
+  gridWidth: number,
+  gridHeight: number,
+  tickMs: number
+): ICDefinition {
+  const input = makePresetNode(1, "SWITCH", 24, 124);
+  const spine = makePresetNode(2, "BUFFER", 132, 124);
+  spine.bufferDelayMs = 60;
+  const screen = makePresetNode(3, "DISPLAY", 210, 34);
+  screen.displayWidth = 2;
+  screen.displayHeight = 8;
+  const rowBuffers = Array.from({ length: gridHeight }, (_, rowIndex) => {
+    const node = makePresetNode(4 + rowIndex, "BUFFER", 372, 22 + rowIndex * 15);
+    node.bufferDelayMs = 40;
+    return node;
+  });
+  const outputs = Array.from({ length: gridHeight }, (_, rowIndex) =>
+    makePresetNode(4 + gridHeight + rowIndex, "OUTPUT", 548, 22 + rowIndex * 15)
+  );
+
+  const wires: ICDefinition["wires"] = [
+    {
+      fromNodeId: input.id,
+      toNodeId: spine.id,
+      fromPortId: getDefaultPortId(input, "output"),
+      toPortId: getDefaultPortId(spine, "input"),
+    },
+  ];
+
+  rowBuffers.forEach((rowBuffer, rowIndex) => {
+    wires.push({
+      fromNodeId: spine.id,
+      toNodeId: rowBuffer.id,
+      fromPortId: getDefaultPortId(spine, "output"),
+      toPortId: getDefaultPortId(rowBuffer, "input"),
+    });
+    wires.push({
+      fromNodeId: rowBuffer.id,
+      toNodeId: outputs[rowIndex]!.id,
+      fromPortId: getDefaultPortId(rowBuffer, "output"),
+      toPortId: getDefaultPortId(outputs[rowIndex]!, "input"),
+    });
+
+    const displayIndex = rowIndex < 8 ? rowIndex * 2 : (rowIndex - 8) * 2 + 1;
+    wires.push({
+      fromNodeId: rowBuffer.id,
+      toNodeId: screen.id,
+      fromPortId: getDefaultPortId(rowBuffer, "output"),
+      toPortId: getDefaultPortId(screen, "input", displayIndex),
+    });
+  });
+
+  return {
+    id,
+    name: `SNAKE COL ${columnIndex + 1}`,
+    nodes: [input, spine, screen, ...rowBuffers, ...outputs],
+    wires,
+    inputNodeIds: [input.id],
+    outputNodeIds: outputs.map((node) => node.id),
+    ledNodeIds: [],
+    paletteHidden: true,
+    compactLayout: {
+      bodyHeight: 248,
+      nodeWidth: 104,
+      portPitch: 10,
+    },
+    builtinKind: "snake_column",
+    snakeGameId: gameId,
+    snakeColumnIndex: columnIndex,
+    snakeGridWidth: gridWidth,
+    snakeGridHeight: gridHeight,
+    snakeCellScale: 1,
+    snakeTickMs: tickMs,
+  };
+}
+
 function buildTutorialSaveObject(): SaveFileV1 {
   const tutorialDef = buildHalfAdderDefinition();
+  const snakeGameId = "tutorial-snake-game";
+  const snakeGridWidth = 24;
+  const snakeGridHeight = 16;
+  const snakeTickMs = 220;
+  const snakeStatusDef = buildSnakeStatusDefinition(
+    2,
+    snakeGameId,
+    snakeGridWidth,
+    snakeGridHeight,
+    snakeTickMs
+  );
+  const snakeColumnDefs = Array.from({ length: snakeGridWidth }, (_, columnIndex) =>
+    buildSnakeColumnDefinition(
+      3 + columnIndex,
+      snakeGameId,
+      columnIndex,
+      snakeGridWidth,
+      snakeGridHeight,
+      snakeTickMs
+    )
+  );
+  const tutorialDefs: ICDefinition[] = [tutorialDef, snakeStatusDef, ...snakeColumnDefs];
   const tutorialNodes: NodeData[] = [];
   const tutorialNotes: NoteData[] = [];
   const tutorialWires: SaveFileV1["wires"] = [];
   let tutorialNextNodeId = 1;
   let tutorialNextNoteId = 1;
+  let tutorialNextDefId = tutorialDefs.reduce((maxId, def) => Math.max(maxId, def.id), 0) + 1;
 
   const addNode = (type: NodeType, x: number, y: number, patch: Partial<NodeData> = {}) => {
     const node = { ...makePresetNode(tutorialNextNodeId++, type, x, y), ...patch };
@@ -4105,6 +8122,14 @@ function buildTutorialSaveObject(): SaveFileV1 {
     connect(from, display, py * displayWidth + px, fromSlot);
   };
 
+  const connectSpeakerTone = (from: NodeData, speaker: NodeData, toneValue: number) => {
+    SPEAKER_INPUT_WEIGHTS.forEach((weight, bitIndex) => {
+      if ((toneValue & weight) !== 0) {
+        connect(from, speaker, bitIndex);
+      }
+    });
+  };
+
   const buildBufferChain = (
     seed: NodeData,
     startX: number,
@@ -4123,42 +8148,6 @@ function buildTutorialSaveObject(): SaveFileV1 {
       prev = buf;
     }
     return stages;
-  };
-
-  const connectDisplayPoints = (
-    from: NodeData,
-    display: NodeData,
-    displayWidth: number,
-    points: Array<{ x: number; y: number }>,
-    fromSlot: "a" | "b" | number = 0
-  ) => {
-    points.forEach((point) => {
-      connectDisplayPixel(from, display, displayWidth, point.x, point.y, fromSlot);
-    });
-  };
-
-  const snakeCellPixels = (cell: { x: number; y: number }) => {
-    const px = 2 + cell.x * 2;
-    const py = 1 + cell.y * 2;
-    return [
-      { x: px, y: py },
-      { x: px + 1, y: py },
-      { x: px, y: py + 1 },
-      { x: px + 1, y: py + 1 },
-    ];
-  };
-
-  const paintSnakeCells = (
-    stages: NodeData[],
-    display: NodeData,
-    displayWidth: number,
-    cells: Array<{ x: number; y: number }>
-  ) => {
-    stages.forEach((stage, index) => {
-      const cell = cells[index];
-      if (!cell) return;
-      connectDisplayPoints(stage, display, displayWidth, snakeCellPixels(cell));
-    });
   };
 
   const noteX = 72;
@@ -4275,19 +8264,48 @@ function buildTutorialSaveObject(): SaveFileV1 {
     250
   );
 
-  const speakerSwitch = addNode("SWITCH", sourceX, 3432);
-  const speakerNode = addNode("SPEAKER", gateX, 3432, {
-    speakerFrequencyHz: 440,
+  const scaleClock = addNode("CLOCK", sourceX - 168, 3432, {
+    clockDelayMs: 1760,
   });
-  const speakerLamp = addNode("OUTPUT", outputX, 3432);
-  connect(speakerSwitch, speakerNode);
-  connect(speakerSwitch, speakerLamp);
+  const scalePulseWidth = addNode("BUFFER", sourceX + 24, 3432, {
+    bufferDelayMs: 220,
+  });
+  const scalePulse = addNode("XOR", gateX - 24, 3432);
+  connect(scaleClock, scalePulseWidth);
+  connect(scaleClock, scalePulse, "a");
+  connect(scalePulseWidth, scalePulse, "b");
+
+  const scaleStages = buildBufferChain(scalePulse, gateX + 228, 3432, 7, 220);
+  const scaleSpeaker = addNode("SPEAKER", gateX + 1404, 3396, {
+    speakerFrequencyHz: 262,
+  });
+  const scaleNotes = [
+    { toneValue: 1, lightColor: "#f59e0b" },
+    { toneValue: 3, lightColor: "#38bdf8" },
+    { toneValue: 5, lightColor: "#34d399" },
+    { toneValue: 6, lightColor: "#a78bfa" },
+    { toneValue: 8, lightColor: "#fb7185" },
+    { toneValue: 10, lightColor: "#22c55e" },
+    { toneValue: 12, lightColor: "#f97316" },
+    { toneValue: 13, lightColor: "#eab308" },
+  ];
+
+  scaleStages.forEach((stage, index) => {
+    const note = scaleNotes[index];
+    if (!note) return;
+    connectSpeakerTone(stage, scaleSpeaker, note.toneValue);
+    const lamp = addNode("OUTPUT", stage.x + 24, 3552, {
+      lightColor: note.lightColor,
+    });
+    connect(stage, lamp);
+  });
+
   addNote(
     noteX,
     3336,
-    "Speaker\n\nThis is the simplest sound part in Cirkit.\n\nTry this:\n- Toggle the switch to hear a basic square-wave beep.\n- Right-click the speaker to change the tone.\n- Wire a clock into it later if you want repeating pulses instead of a steady tone.",
-    432,
-    240
+    "4-bit speaker scale\n\nThis circuit auto-plays a full major scale on the speaker: C D E F G A B C.\n\nHow it works:\n- The clock and delayed clock create one short pulse.\n- The buffer chain delays that pulse step by step, so the lamps march left to right.\n- Each stage is wired into the speaker's 1 / 2 / 4 / 8 inputs with a different binary combo, so every step becomes a different note.\n\nClick once anywhere if your browser needs to unlock audio, then listen to the scale loop.",
+    456,
+    286
   );
 
   const displayDemoWidth = 4;
@@ -4326,131 +8344,90 @@ function buildTutorialSaveObject(): SaveFileV1 {
   );
 
   const gameY = 4320;
-  const snakeDisplayWidth = 24;
-  const snakeDisplayHeight = 16;
-  const snakeDisplay = addNode("DISPLAY", 1920, gameY + 48, {
-    displayWidth: snakeDisplayWidth,
-    displayHeight: snakeDisplayHeight,
+  const snakeDisplay = addNode("DISPLAY", 1836, gameY + 132, {
+    displayWidth: snakeGridWidth,
+    displayHeight: snakeGridHeight,
   });
 
-  const snakeClock = addNode("CLOCK", 768, gameY, { clockDelayMs: 1000 });
-  const snakePulseWidth = addNode("BUFFER", 960, gameY, {
-    bufferDelayMs: 700,
+  const snakeKeyW = addNode("KEY", 744, gameY + 52, {
+    keyChar: "w",
+    keyMode: "hold",
   });
-  const snakePulse = addNode("XOR", 1188, gameY);
-  connect(snakeClock, snakePulseWidth);
-  connect(snakeClock, snakePulse, "a");
-  connect(snakePulseWidth, snakePulse, "b");
-
-  const snakeTurnKey = addNode("KEY", 768, gameY + 216, {
+  const snakeKeyA = addNode("KEY", 744, gameY + 164, {
+    keyChar: "a",
+    keyMode: "hold",
+  });
+  const snakeKeyS = addNode("KEY", 744, gameY + 276, {
+    keyChar: "s",
+    keyMode: "hold",
+  });
+  const snakeKeyD = addNode("KEY", 744, gameY + 388, {
     keyChar: "d",
     keyMode: "hold",
   });
-  const snakeTurnNot = addNode("NOT", 960, gameY + 216);
-  connect(snakeTurnKey, snakeTurnNot);
 
-  const entryCells = [
-    { x: 1, y: 4 },
-    { x: 2, y: 4 },
-    { x: 3, y: 3 },
-    { x: 4, y: 2 },
-    { x: 5, y: 2 },
-  ];
-  const safeCells = [
-    { x: 6, y: 1 },
-    { x: 7, y: 0 },
-    { x: 8, y: 0 },
-    { x: 9, y: 1 },
-    { x: 9, y: 2 },
-    { x: 8, y: 3 },
-    { x: 7, y: 3 },
-  ];
-  const riskyCells = [
-    { x: 6, y: 3 },
-    { x: 5, y: 3 },
-    { x: 4, y: 3 },
-    { x: 4, y: 2 },
-    { x: 5, y: 2 },
-  ];
-
-  const entryStages = buildBufferChain(
-    snakePulse,
-    1500,
-    gameY,
-    entryCells.length - 1,
-    90
-  );
-  const safeStart = addNode("AND", 1320, gameY + 216);
-  const riskyStart = addNode("AND", 1320, gameY + 336);
-  connect(entryStages[entryStages.length - 1], safeStart, "a");
-  connect(snakeTurnNot, safeStart, "b");
-  connect(entryStages[entryStages.length - 1], riskyStart, "a");
-  connect(snakeTurnKey, riskyStart, "b");
-
-  const safeStages = buildBufferChain(
-    safeStart,
-    1500,
-    gameY + 216,
-    safeCells.length - 1,
-    90
-  );
-  const riskyStages = buildBufferChain(
-    riskyStart,
-    1500,
-    gameY + 336,
-    riskyCells.length - 1,
-    90
-  );
-
-  paintSnakeCells(entryStages, snakeDisplay, snakeDisplayWidth, entryCells);
-  paintSnakeCells(safeStages, snakeDisplay, snakeDisplayWidth, safeCells);
-  paintSnakeCells(riskyStages, snakeDisplay, snakeDisplayWidth, riskyCells);
-
-  const applePower = addNode("POWER", 768, gameY + 648);
-  connectDisplayPoints(
-    applePower,
-    snakeDisplay,
-    snakeDisplayWidth,
-    snakeCellPixels({ x: 8, y: 0 })
-  );
-
-  const biteSignal = addNode("AND", 1140, gameY + 648);
-  connect(safeStages[2], biteSignal, "a");
-  connect(applePower, biteSignal, "b");
-
-  const crashSignal = addNode("AND", 1140, gameY + 768);
-  connect(riskyStages[4], crashSignal, "a");
-  connect(entryStages[4], crashSignal, "b");
-
-  const biteSpeaker = addNode("SPEAKER", 1500, gameY + 624, {
-    speakerFrequencyHz: 880,
+  const snakeStatus = addNode("IC", 1016, gameY + 132, {
+    icDefId: snakeStatusDef.id,
   });
-  const biteLamp = addNode("OUTPUT", 1680, gameY + 624, {
-    lightColor: "#22c55e",
-  });
-  connect(biteSignal, biteSpeaker);
-  connect(biteSignal, biteLamp);
+  connect(snakeKeyW, snakeStatus, 0);
+  connect(snakeKeyA, snakeStatus, 1);
+  connect(snakeKeyS, snakeStatus, 2);
+  connect(snakeKeyD, snakeStatus, 3);
 
-  const crashSpeaker = addNode("SPEAKER", 1500, gameY + 768, {
+  const snakeFoodSpeaker = addNode("SPEAKER", 1320, gameY + 116, {
     speakerFrequencyHz: 220,
   });
-  const crashLamp = addNode("OUTPUT", 1680, gameY + 768, {
+  const snakeFoodLamp = addNode("OUTPUT", 1536, gameY + 116, {
+    lightColor: "#22c55e",
+  });
+  connect(snakeStatus, snakeFoodSpeaker, 1, 0);
+  connect(snakeStatus, snakeFoodSpeaker, 2, 0);
+  connect(snakeStatus, snakeFoodLamp, 0, 0);
+
+  const snakeCrashSpeaker = addNode("SPEAKER", 1320, gameY + 296, {
+    speakerFrequencyHz: 220,
+  });
+  const snakeCrashLamp = addNode("OUTPUT", 1536, gameY + 296, {
     lightColor: "#ef4444",
   });
-  connect(crashSignal, crashSpeaker);
-  connect(crashSignal, crashLamp);
+  connect(snakeStatus, snakeCrashSpeaker, 0, 1);
+  connect(snakeStatus, snakeCrashSpeaker, 3, 1);
+  connect(snakeStatus, snakeCrashLamp, 0, 1);
+
+  const columnDriverLayout = getIcNodeLayout(snakeColumnDefs[0]);
+  const driverCols = 6;
+  const driverGapX = 18;
+  const driverGapY = 26;
+  const driverStartX = snakeDisplay.x + 28;
+  const driverStartY = gameY + 616;
+
+  snakeColumnDefs.forEach((def, columnIndex) => {
+    const driverRow = Math.floor(columnIndex / driverCols);
+    const driverCol = columnIndex % driverCols;
+    const driverNode = addNode(
+      "IC",
+      driverStartX + driverCol * (columnDriverLayout.nodeWidth + driverGapX),
+      driverStartY + driverRow * (columnDriverLayout.bodyHeight + driverGapY),
+      { icDefId: def.id }
+    );
+    connect(snakeStatus, driverNode, 0, 2 + columnIndex);
+
+    for (let row = 0; row < snakeGridHeight; row++) {
+      connectDisplayPixel(driverNode, snakeDisplay, snakeGridWidth, columnIndex, row, row);
+    }
+  });
 
   addNote(
     noteX,
     4212,
-    "Advanced build: playable snake fork\n\nThis now behaves like a tiny snake challenge.\n\nHow to play:\n- Leave D released for the long safe route.\n- Hold D before the fork to take the shortcut.\n- The safe route reaches the apple.\n- The shortcut cuts back into the still-lit tail and crashes.\n\nWhy it actually reads like snake:\n- The pulse source is XOR(clock, delayed clock), so a moving body appears after every clock edge instead of only once in a while.\n- Each buffer stage delays that pulse by less than the pulse width, so several adjacent stages stay ON together.\n- Each live stage draws one chunky body segment on the display, so you can actually see the snake instead of a few lonely pixels.\n- The crash check is a literal overlap AND gate between the shortcut head and an earlier body segment on the same cell.\n\nGreen lamp/speaker = apple. Red lamp/speaker = self-collision. No ICs are used here.",
-    504,
-    410
+    "Snake\n\nThis one is a real snake game.\n\nControls:\n- Hold W to go up\n- Hold A to go left\n- Hold S to go down\n- Hold D to go right\n\nHow it works:\n- The SNAKE GAME IC keeps the shared game state.\n- Its extra outputs fan out into the named SNAKE COL driver ICs.\n- The display is a full 24x16 grid and every screen input is explicitly wired.\n- Green pulse = food eaten. Red pulse = crash, then the game resets.",
+    556,
+    310
   );
 
   addNote(
     noteX,
-    5232,
+    5988,
     "Tips\n\nRight-click nodes to open the custom control panels.\nUse the middle mouse button to pan.\nRight-click blank space to create your own note.\nUse Delete or Backspace to remove selected notes, wires, or gates.\n\nScroll back up and experiment with any section.",
     430,
     220
@@ -4461,11 +8438,11 @@ function buildTutorialSaveObject(): SaveFileV1 {
     nodes: tutorialNodes,
     notes: tutorialNotes,
     wires: tutorialWires,
-    icDefinitions: [tutorialDef],
+    icDefinitions: tutorialDefs,
     nextIds: {
       nextNodeId: tutorialNextNodeId,
       nextWireId: tutorialWires.length + 1,
-      nextICId: tutorialDef.id + 1,
+      nextICId: tutorialNextDefId,
       nextNoteId: tutorialNextNoteId,
     },
   };
@@ -4568,12 +8545,15 @@ function loadFromObject(obj: any) {
   icDefinitions.length = 0;
   notes.clear();
   clockTimers.clear();
+  clockLastTickAt.clear();
   bufferLastInput.clear();
   bufferTimeouts.clear();
+  resetAllIcRuntimeState();
   Array.from(speakerVoices.keys()).forEach((nodeId) => stopSpeakerVoice(nodeId));
 
   // ICs
   palette.querySelectorAll<HTMLDivElement>(".palette-item-ic").forEach((el) => el.remove());
+  updateCustomIcPaletteSectionVisibility();
   data.icDefinitions.forEach((d) => {
     const def: ICDefinition = {
       id: d.id,
@@ -4584,10 +8564,21 @@ function loadFromObject(obj: any) {
       inputNodeIds: d.inputNodeIds.slice(),
       outputNodeIds: d.outputNodeIds.slice(),
       ledNodeIds: d.ledNodeIds.slice(),
+      paletteHidden: !!d.paletteHidden,
+      compactLayout: d.compactLayout ? { ...d.compactLayout } : undefined,
+      builtinKind: d.builtinKind,
+      snakeGameId: d.snakeGameId,
+      snakeRowIndex: d.snakeRowIndex,
+      snakeColumnIndex: d.snakeColumnIndex,
+      snakeGridWidth: d.snakeGridWidth,
+      snakeGridHeight: d.snakeGridHeight,
+      snakeCellScale: d.snakeCellScale,
+      snakeTickMs: d.snakeTickMs,
     };
     icDefinitions.push(def);
     addICPaletteButton(def);
   });
+  updateCustomIcPaletteSectionVisibility();
 
   // nodes
   data.nodes.forEach((n) => {
@@ -4629,6 +8620,7 @@ function loadFromObject(obj: any) {
   notes.forEach((note) => renderNote(note));
   recomputeSignals();
   setEditingLabel(null);
+  invalidateWorkspaceDraftAutosaveCache();
   clearWorkspaceChanged();
 
 }
@@ -4641,8 +8633,10 @@ function resetWorkspaceHard() {
   // stop timers + clear runtime maps
   nodes.forEach((n) => teardownNodeDynamicBehavior(n.id));
   clockTimers.clear();
+  clockLastTickAt.clear();
   bufferLastInput.clear();
   bufferTimeouts.clear();
+  resetAllIcRuntimeState();
   Array.from(speakerVoices.keys()).forEach((nodeId) => stopSpeakerVoice(nodeId));
 
   // remove DOM nodes + wires
@@ -4659,6 +8653,7 @@ function resetWorkspaceHard() {
   // wipe ALL custom ICs from left column + definitions
   icDefinitions.length = 0;
   palette.querySelectorAll<HTMLDivElement>(".palette-item-ic").forEach((el) => el.remove());
+  updateCustomIcPaletteSectionVisibility();
 
   // reset selection / UI
   clearSelection();
@@ -4678,6 +8673,7 @@ function resetWorkspaceHard() {
 
   // optional: re-run signals just to ensure clean visuals (no nodes anyway)
   recomputeSignals();
+  invalidateWorkspaceDraftAutosaveCache();
   clearWorkspaceChanged();
 }
 
@@ -4734,26 +8730,49 @@ interface ServerCircuit extends ServerCircuitSummary {
   data: SaveFileV1;
 }
 
+interface ServerWorkspaceDraft {
+  title: string;
+  visibility: "private" | "preview" | "open";
+  data: SaveFileV1;
+  updatedAt: number;
+}
+
 let currentUser: CurrentUser | null = null;
 let currentCircuitTitle = "Untitled";
 let currentCircuitVisibility: "private" | "preview" | "open" = "private";
+const TEMP_WORKSPACE_AUTOSAVE_DELAY_MS = 12000;
+const TEMP_WORKSPACE_AUTOSAVE_INTERVAL_MS = 45000;
+let draftAutosaveTimeoutId: number | null = null;
+let draftAutosaveInFlight = false;
+let queuedDraftAutosave = false;
+let lastDraftAutosaveKey = "";
+let workspaceDraftPromptShown = false;
+let startupContentReady: Promise<void> = Promise.resolve();
 
-// =======================
-// IMPORTANT: FIX COMMUNITY / API BASE
-// =======================
-// Your old api() used relative paths, which breaks if the frontend runs on
-// a different port than the backend (e.g. Vite :5173 vs server :4000).
-// This is *very likely* why Community "stopped working".
 const APP_BASE = (import.meta as any).env?.BASE_URL ?? "/";
 const API_BASE =
   (import.meta as any).env?.VITE_API_BASE ??
-  ((import.meta as any).env?.DEV
-    ? APP_BASE.startsWith("/cirkit/")
-      ? "/cirkit/api"
-      : "http://localhost:4000"
-    : APP_BASE.startsWith("/cirkit/")
-      ? "/cirkit/api"
-      : "");
+  (APP_BASE.startsWith("/cirkit/") ? "/cirkit/api" : "/api");
+
+function parseApiErrorMessage(text: string, fallback: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return fallback;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object") {
+      const errorMessage =
+        typeof (parsed as any).error === "string"
+          ? (parsed as any).error
+          : typeof (parsed as any).message === "string"
+            ? (parsed as any).message
+            : "";
+      if (errorMessage.trim()) return errorMessage.trim();
+    }
+  } catch {
+    // ignore non-JSON error bodies
+  }
+  return trimmed || fallback;
+}
 
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = API_BASE ? API_BASE + path : path;
@@ -4763,7 +8782,7 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || res.statusText);
+    throw new Error(parseApiErrorMessage(text, res.statusText));
   }
   return res.json() as Promise<T>;
 }
@@ -4798,12 +8817,8 @@ function nodeApproxSize(
 ): { w: number; h: number } {
   if (node.type === "IC") {
     const def = node.icDefId != null ? icDefMap.get(node.icDefId) : undefined;
-    const inCount = def?.inputNodeIds.length ?? 0;
-    const outCount = def?.outputNodeIds.length ?? 0;
-    const ledCount = def?.ledNodeIds.length ?? 0;
-    const rows = Math.max(inCount, outCount, ledCount, 1);
-    const bodyHeight = Math.max(40, rows * 18 + 8);
-    return { w: 140, h: 24 + bodyHeight };
+    const layout = getIcNodeLayout(def);
+    return { w: layout.nodeWidth, h: layout.bodyHeight };
   }
   if (node.type === "DISPLAY") {
     const layout = getDisplayLayout(node);
@@ -4816,8 +8831,12 @@ function nodeApproxSize(
 function portPosForPreview(
   node: NodeData,
   portId: string,
-  icDefMap: Map<number, ICDefinition>
+  icDefMap: Map<number, ICDefinition>,
+  portAnchors?: Map<string, { x: number; y: number }>
 ): { x: number; y: number } {
+  const anchored = portAnchors?.get(portId);
+  if (anchored) return anchored;
+
   const { w, h } = nodeApproxSize(node, icDefMap);
 
   // base anchor points (relative to node top-left)
@@ -4827,31 +8846,81 @@ function portPosForPreview(
   const parts = portId.split(":");
   const role = parts[1] || "";
   const suffix = parts[2] || "";
-
   const isOut = role === "out";
   let yFrac = 0.5;
 
   if (node.type === "IC") {
     const def = node.icDefId != null ? icDefMap.get(node.icDefId) : undefined;
-    const inCount = def?.inputNodeIds.length ?? 0;
-    const outCount = def?.outputNodeIds.length ?? 0;
-
     if (role === "in") {
       const idx = Number(suffix);
-      if (Number.isFinite(idx) && inCount > 0) {
-        yFrac = (idx + 1) / (inCount + 1);
+      if (Number.isFinite(idx)) {
+        const point = getIcPortPlacement(def, "in", idx);
+        return {
+          x: node.x + point.x,
+          y: node.y + point.y,
+        };
       }
     } else if (role === "out") {
       const idx = Number(suffix);
-      if (Number.isFinite(idx) && outCount > 0) {
-        yFrac = (idx + 1) / (outCount + 1);
+      if (Number.isFinite(idx)) {
+        const point = getIcPortPlacement(def, "out", idx);
+        return {
+          x: node.x + point.x,
+          y: node.y + point.y,
+        };
       }
     }
+  } else if (node.type === "GUIDE") {
+    const parsed = parseGuidePortId(portId);
+    const layout = getGuideLayout(node);
+    const slotIndex = parsed?.slotIndex ?? 0;
+    const clampedSlot = clamp(slotIndex, 0, layout.slotCenters.length - 1);
+    return {
+      x: node.x + layout.width / 2,
+      y: node.y + layout.slotCenters[clampedSlot],
+    };
+  } else if (node.type === "CABLE") {
+    const parsed = parseCablePortId(portId);
+    const geometry = getCableGeometry(node);
+    const channel = clamp(parsed?.channel ?? 0, 0, geometry.rowOffsets.length - 1);
+    const side = parsed?.side ?? "left";
+    return {
+      x: side === "left" ? geometry.startX : geometry.endX,
+      y:
+        (side === "left" ? geometry.startY : geometry.endY) +
+        geometry.rowOffsets[channel],
+    };
+  } else if (node.type === "SPEAKER" && role === "in") {
+    const layout = getSpeakerLayout();
+    const index = clamp(Number(suffix), 0, layout.portPlacements.length - 1);
+    const placement = layout.portPlacements[index];
+    return {
+      x: node.x + placement.x,
+      y: node.y + DISPLAY_HEADER_HEIGHT + placement.y,
+    };
   } else if (node.type === "DISPLAY" && role === "in") {
     const index = Number(suffix);
     if (Number.isFinite(index) && index >= 0) {
       return getDisplayPixelCoordinates(node, index);
     }
+  } else if (node.type === "NUMBER_DISPLAY" && role === "in") {
+    const layout = getNumberDisplayLayout(node);
+    const index = clamp(Number(suffix), 0, layout.portPlacements.length - 1);
+    const placement = layout.portPlacements[index];
+    return {
+      x: node.x + placement.x,
+      y: node.y + DISPLAY_HEADER_HEIGHT + placement.y,
+    };
+  } else if (node.type === "POWER" && role === "out") {
+    return {
+      x: node.x + 88,
+      y: node.y + h / 2,
+    };
+  } else if ((node.type === "OUTPUT" || node.type === "LED") && role === "in") {
+    return {
+      x: node.x + 30,
+      y: node.y + h / 2,
+    };
   } else {
     // A/B stacked inputs on some gates
     if (role === "in") {
@@ -4990,57 +9059,6 @@ function renderCircuitThumbSvg(opts: {
   `.trim();
 }
 
-function renderIcBlockThumbSvg(opts: {
-  name: string;
-  inputs: number;
-  outputs: number;
-  width: number;
-  height: number;
-}): string {
-  const bg = "#0b1220";
-  const stroke = "rgba(255,255,255,0.24)";
-  const fg = "rgba(255,255,255,0.85)";
-
-  const pad = 18;
-  const boxX = pad;
-  const boxY = pad;
-  const boxW = opts.width - pad * 2;
-  const boxH = opts.height - pad * 2;
-
-  const dotR = 4;
-  const inDots = Array.from({ length: Math.max(1, opts.inputs) })
-    .map((_, i) => {
-      const y = boxY + (boxH * (i + 1)) / (Math.max(1, opts.inputs) + 1);
-      return `<circle cx="${boxX}" cy="${y}" r="${dotR}" fill="rgba(255,255,255,0.75)" />`;
-    })
-    .join("");
-
-  const outDots = Array.from({ length: Math.max(1, opts.outputs) })
-    .map((_, i) => {
-      const y = boxY + (boxH * (i + 1)) / (Math.max(1, opts.outputs) + 1);
-      return `<circle cx="${boxX + boxW}" cy="${y}" r="${dotR}" fill="rgba(255,255,255,0.00)" stroke="rgba(255,255,255,0.75)" stroke-width="2" />`;
-    })
-    .join("");
-
-  return `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${opts.width}" height="${opts.height}" viewBox="0 0 ${opts.width} ${opts.height}">
-      <defs>
-        <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0" stop-color="${bg}" />
-          <stop offset="1" stop-color="#111827" />
-        </linearGradient>
-      </defs>
-      <rect x="0" y="0" width="${opts.width}" height="${opts.height}" fill="url(#bg)" />
-      <rect x="${boxX}" y="${boxY}" width="${boxW}" height="${boxH}" rx="10" ry="10"
-            fill="rgba(255,255,255,0.06)" stroke="${stroke}" stroke-width="2" />
-      <text x="${boxX + 12}" y="${boxY + 18}" font-size="12" fill="${fg}"
-            font-family="system-ui, -apple-system, Segoe UI">${escapeHtml(opts.name)}</text>
-      ${inDots}
-      ${outDots}
-    </svg>
-  `.trim();
-}
-
 async function getCircuitThumbById(circuitId: number, title?: string): Promise<string> {
   const key: ThumbKey = `circuit:${circuitId}`;
   const cached = previewCache.get(key);
@@ -5066,60 +9084,6 @@ async function getCircuitThumbById(circuitId: number, title?: string): Promise<s
   const url = svgToDataUrl(svg);
   previewCache.set(key, url);
   return url;
-}
-
-async function getToolboxThumbs(entryId: number): Promise<{ block: string; inside: string }> {
-  const keyBlock: ThumbKey = `toolbox:${entryId}:block`;
-  const keyInside: ThumbKey = `toolbox:${entryId}:inside`;
-
-  const cachedBlock = previewCache.get(keyBlock);
-  const cachedInside = previewCache.get(keyInside);
-  if (cachedBlock && cachedInside) return { block: cachedBlock, inside: cachedInside };
-
-  const entry = await api<ToolboxEntry>("/api/toolbox/" + entryId);
-
-  const v = validateSingleIcBoard(entry.data);
-  const defs = (entry.data.icDefinitions || []) as ICDefinition[];
-
-  let blockUrl = cachedBlock;
-  let insideUrl = cachedInside;
-
-  if (v.ok) {
-    const rootDef = v.rootDef;
-    const blockSvg = renderIcBlockThumbSvg({
-      name: entry.name || rootDef.name || "IC",
-      inputs: rootDef.inputNodeIds.length,
-      outputs: rootDef.outputNodeIds.length,
-      width: 280,
-      height: 180,
-    });
-    blockUrl = svgToDataUrl(blockSvg);
-
-    const insideSvg = renderCircuitThumbSvg({
-      nodes: rootDef.nodes,
-      wires: rootDef.wires,
-      icDefinitions: defs,
-      width: 280,
-      height: 180,
-      title: "Inside",
-    });
-    insideUrl = svgToDataUrl(insideSvg);
-  } else {
-    // fallback thumbs
-    const badSvg = renderIcBlockThumbSvg({
-      name: entry.name || "IC",
-      inputs: 1,
-      outputs: 1,
-      width: 280,
-      height: 180,
-    });
-    blockUrl = svgToDataUrl(badSvg);
-    insideUrl = svgToDataUrl(badSvg);
-  }
-
-  previewCache.set(keyBlock, blockUrl!);
-  previewCache.set(keyInside, insideUrl!);
-  return { block: blockUrl!, inside: insideUrl! };
 }
 
 async function runWithConcurrency<T>(
@@ -5762,6 +9726,8 @@ function openSaveToAccountModal() {
             body: JSON.stringify(payload),
           });
 
+          await deleteWorkspaceDraft();
+
           close();
           toast("Saved to your account. Workspace reset.");
 
@@ -5965,6 +9931,56 @@ accountOverlay.addEventListener("click", (ev) => {
 // You must set VITE_GOOGLE_CLIENT_ID in your frontend env (.env file).
 const GOOGLE_CLIENT_ID =
   (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || "";
+const IS_DEV = !!(import.meta as any).env?.DEV;
+
+function setGoogleSignInError(message: string) {
+  googleErr.style.display = "";
+  googleErr.textContent = message;
+}
+
+function shouldRedirectGoogleDevOrigin(): boolean {
+  if (!IS_DEV) return false;
+  const host = window.location.hostname;
+  return host === "127.0.0.1" || host === "0.0.0.0";
+}
+
+function redirectGoogleDevOrigin() {
+  const url = new URL(window.location.href);
+  url.hostname = "localhost";
+  window.location.replace(url.toString());
+}
+
+function explainGoogleSignInError(err: unknown): string {
+  const raw =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : "";
+  const message = raw.trim();
+
+  if (shouldRedirectGoogleDevOrigin()) {
+    return "Google Sign-In works more reliably on localhost than 127.0.0.1 here. Reloading on localhost should fix it.";
+  }
+  if (!message) {
+    return "Google sign-in failed.";
+  }
+
+  const lower = message.toLowerCase();
+  if (lower.includes("origin") || lower.includes("authorized javascript origins")) {
+    return `Google Sign-In blocked this origin: ${window.location.origin}. Add it to the Google OAuth client or use localhost/your production domain.`;
+  }
+  if (lower.includes("missing google_client_id")) {
+    return "Server missing GOOGLE_CLIENT_ID. Add it to server/.env and restart the server.";
+  }
+  if (lower.includes("google auth failed")) {
+    return message;
+  }
+  if (lower.includes("gis load error")) {
+    return "Failed to load the Google Sign-In script. Check your connection or any content blockers.";
+  }
+  return `Google sign-in failed: ${message}`;
+}
 
 function loadGoogleGsiScript(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -5992,65 +10008,86 @@ function loadGoogleGsiScript(): Promise<void> {
 }
 
 let googleRendered = false;
+let googleInitPromise: Promise<void> | null = null;
 
 async function initGoogleSignInIfNeeded() {
   if (googleRendered) return;
-  googleRendered = true;
+  if (googleInitPromise) return googleInitPromise;
 
-  if (!GOOGLE_CLIENT_ID) {
-    googleErr.style.display = "";
-    googleErr.textContent =
-      "Missing VITE_GOOGLE_CLIENT_ID. Add it to your frontend env and restart.";
-    return;
-  }
+  googleInitPromise = (async () => {
+    if (!GOOGLE_CLIENT_ID) {
+      setGoogleSignInError(
+        "Missing VITE_GOOGLE_CLIENT_ID. Add it to your frontend env and restart."
+      );
+      return;
+    }
 
-  try {
-    await loadGoogleGsiScript();
-    const w = window as any;
+    if (shouldRedirectGoogleDevOrigin()) {
+      setGoogleSignInError(
+        "Switching to localhost because Google Sign-In often rejects 127.0.0.1 here."
+      );
+      redirectGoogleDevOrigin();
+      return;
+    }
 
-    w.google.accounts.id.initialize({
-      client_id: GOOGLE_CLIENT_ID,
-      callback: async (resp: { credential?: string }) => {
-        try {
-          googleErr.style.display = "none";
-          const credential = resp.credential;
-          if (!credential) throw new Error("Missing credential");
+    try {
+      await loadGoogleGsiScript();
+      const w = window as any;
+      googleSlot.innerHTML = "";
+      googleErr.style.display = "none";
 
-          const user = await api<CurrentUser>("/api/auth/google", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ credential }),
-          });
+      w.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: async (resp: { credential?: string }) => {
+          try {
+            googleErr.style.display = "none";
+            const credential = resp.credential;
+            if (!credential) throw new Error("Missing credential");
 
-          currentUser = user;
-          applyAccountUI();
-          await refreshMyCircuits();
-        } catch (e) {
-          console.error(e);
-          googleErr.style.display = "";
-          googleErr.textContent = "Google sign-in failed.";
-          currentUser = null;
-          applyAccountUI();
-        }
-      },
-    });
+            const user = await api<CurrentUser>("/api/auth/google", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ credential }),
+            });
 
-    // Render button
-    w.google.accounts.id.renderButton(googleSlot, {
-      theme: "outline",
-      size: "large",
-      width: 260,
-      text: "signin_with",
-      shape: "pill",
-    });
+            currentUser = user;
+            applyAccountUI();
+            await refreshMyCircuits();
+            scheduleWorkspaceDraftAutosave(1500);
+            void maybePromptWorkspaceDraftRestore();
+          } catch (e) {
+            console.error(e);
+            setGoogleSignInError(explainGoogleSignInError(e));
+            currentUser = null;
+            workspaceDraftPromptShown = false;
+            applyAccountUI();
+          }
+        },
+      });
 
-    // Optional: one tap
-    // w.google.accounts.id.prompt();
-  } catch (e) {
-    console.error(e);
-    googleErr.style.display = "";
-    googleErr.textContent = "Failed to load Google Sign-In.";
-  }
+      w.google.accounts.id.renderButton(googleSlot, {
+        theme: "outline",
+        size: "large",
+        width: 260,
+        text: "signin_with",
+        shape: "pill",
+      });
+
+      googleRendered = true;
+
+      // Optional: one tap
+      // w.google.accounts.id.prompt();
+    } catch (e) {
+      console.error(e);
+      googleRendered = false;
+      googleSlot.innerHTML = "";
+      setGoogleSignInError(explainGoogleSignInError(e));
+    } finally {
+      googleInitPromise = null;
+    }
+  })();
+
+  return googleInitPromise;
 }
 
 // --- Account state -> UI ---
@@ -6085,7 +10122,14 @@ async function refreshMe() {
   } catch {
     currentUser = null;
   }
+  if (!currentUser) {
+    workspaceDraftPromptShown = false;
+  }
   applyAccountUI();
+  if (currentUser) {
+    scheduleWorkspaceDraftAutosave(1500);
+    void maybePromptWorkspaceDraftRestore();
+  }
 }
 
 // --- Logout ---
@@ -6096,6 +10140,7 @@ accountLogoutBtn.addEventListener("click", async () => {
     // ignore
   }
   currentUser = null;
+  workspaceDraftPromptShown = false;
   applyAccountUI();
   accountCircuitListEl.innerHTML = "";
 });
@@ -6119,7 +10164,7 @@ async function openCircuitFromServer(id: number) {
     toast("Failed to open circuit.");
   }
 }
-void openStartupContentFromUrlParam();
+startupContentReady = openStartupContentFromUrlParam();
 
 function openCircuitInNewTab(id: number) {
   const url = new URL(window.location.href);
@@ -6152,7 +10197,7 @@ async function openStartupContentFromUrlParam() {
     currentCircuitTitle = "Tutorial";
     currentCircuitVisibility = "private";
     setEditingLabel(null);
-    setPreviewMode(true);
+    setPreviewMode(false);
     url.searchParams.delete("tutorial");
     history.replaceState(
       {},
@@ -6412,6 +10457,26 @@ communityRefreshBtn.addEventListener("click", () => {
 // (keep your existing save dialog below; it expects saveAccountButton/currentUser/etc)
 
 // Try to pull existing session on load
+window.setInterval(() => {
+  void saveWorkspaceDraft();
+}, TEMP_WORKSPACE_AUTOSAVE_INTERVAL_MS);
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    saveWorkspaceDraftOnLeave();
+    return;
+  }
+  if (pendingSignalRecomputeTimeout != null) {
+    window.clearTimeout(pendingSignalRecomputeTimeout);
+    pendingSignalRecomputeTimeout = null;
+  }
+  recomputeSignals();
+});
+
+window.addEventListener("pagehide", () => {
+  saveWorkspaceDraftOnLeave();
+});
+
 void refreshMe();
 
 
@@ -6444,7 +10509,7 @@ icToolboxOverlay.innerHTML = `
     <div class="overlay-body">
       <div class="toolbox-header-row">
         <div style="font-size:12px;color:#4b5563;">Shared IC modules from the community.</div>
-        <button type="button" class="toolbox-upload-current">Upload current</button>
+        <button type="button" class="toolbox-upload-current">Upload from palette</button>
       </div>
       <div class="toolbox-list"></div>
     </div>
@@ -6500,14 +10565,14 @@ async function refreshToolbox() {
 
   if (!list.length) {
     icToolboxList.innerHTML =
-      '<div style="font-size:12px;color:#6b7280;">No IC entries yet. Upload your current circuit to share one.</div>';
+      '<div style="font-size:12px;color:#6b7280;">No IC entries yet. Pick one from the left column to upload it here.</div>';
     return;
   }
 
   const shell = buildGalleryShell({
     container: icToolboxList,
     title: "IC Library",
-    subtitle: "Reusable IC modules (block + inside preview).",
+    subtitle: "Reusable IC modules with exposed internals.",
     searchPlaceholder: "Search IC library…",
     extraRightHTML: `
       <button type="button" class="gallery-refresh">Refresh</button>
@@ -6528,17 +10593,10 @@ async function refreshToolbox() {
       const created = new Date(entry.createdAt);
 
       card.innerHTML = `
-        <div class="thumb-two">
-          <div class="thumb-wrap small">
-            <div class="thumb-label">Block</div>
-            <div class="thumb-skeleton"></div>
-            <img class="thumb-img thumb-block" alt="IC block preview" style="display:none;" />
-          </div>
-          <div class="thumb-wrap small">
-            <div class="thumb-label">Inside</div>
-            <div class="thumb-skeleton"></div>
-            <img class="thumb-img thumb-inside" alt="IC inside preview" style="display:none;" />
-          </div>
+        <div class="thumb-wrap toolbox-preview-wrap">
+          <div class="thumb-label">Inside</div>
+          <div class="thumb-skeleton"></div>
+          <div class="toolbox-ic-preview"></div>
         </div>
 
         <div class="card-body">
@@ -6576,24 +10634,28 @@ async function refreshToolbox() {
     });
 
     void runWithConcurrency(filtered, 4, async (entry) => {
-      const thumbs = await getToolboxThumbs(entry.id);
+      const fullEntry = await api<ToolboxEntry>("/api/toolbox/" + entry.id);
+      const defs = (fullEntry.data.icDefinitions || []) as ICDefinition[];
+      const validation = validateSingleIcBoard(fullEntry.data);
 
       const card = shell.gridEl.querySelector<HTMLDivElement>(
         `.gallery-card[data-toolbox-id="${entry.id}"]`
       );
       if (!card) return;
 
-      const blockImg = card.querySelector<HTMLImageElement>(".thumb-block")!;
-      const insideImg = card.querySelector<HTMLImageElement>(".thumb-inside")!;
-      const skels = card.querySelectorAll<HTMLDivElement>(".thumb-skeleton");
+      const preview = card.querySelector<HTMLDivElement>(".toolbox-ic-preview");
+      const skel = card.querySelector<HTMLDivElement>(".thumb-skeleton");
+      if (!preview || !skel) return;
 
-      blockImg.src = thumbs.block;
-      insideImg.src = thumbs.inside;
+      if (!validation.ok) {
+        preview.innerHTML =
+          `<div class="toolbox-preview-fallback">${escapeHtml(validation.reason)}</div>`;
+        skel.style.display = "none";
+        return;
+      }
 
-      blockImg.style.display = "";
-      insideImg.style.display = "";
-
-      skels.forEach((s) => (s.style.display = "none"));
+      renderIcPreviewInto(preview, validation.rootDef, 280, 180, undefined, defs);
+      skel.style.display = "none";
     });
   }
 
@@ -6630,63 +10692,125 @@ async function openToolboxEntry(id: number) {
 
 
 
-// Upload current circuit into toolbox
-icToolboxUploadBtn?.addEventListener("click", async () => {
+function collectIcDefinitionClosure(rootDefId: number): ICDefinition[] {
+  const defMap = new Map<number, ICDefinition>();
+  icDefinitions.forEach((def) => defMap.set(def.id, def));
+
+  const ordered: ICDefinition[] = [];
+  const visited = new Set<number>();
+
+  const visit = (defId: number) => {
+    if (visited.has(defId)) return;
+    const def = defMap.get(defId);
+    if (!def) return;
+    visited.add(defId);
+    ordered.push(def);
+    def.nodes.forEach((node) => {
+      if (node.type === "IC" && typeof node.icDefId === "number") {
+        visit(node.icDefId);
+      }
+    });
+  };
+
+  visit(rootDefId);
+  return ordered;
+}
+
+function buildSingleIcToolboxSave(def: ICDefinition): SaveFileV1 {
+  const defs = collectIcDefinitionClosure(def.id).map((item) => ({
+    ...item,
+    nodes: item.nodes.map((node) => ({ ...node })),
+    wires: item.wires.map((wire) => ({ ...wire })),
+    inputNodeIds: [...item.inputNodeIds],
+    outputNodeIds: [...item.outputNodeIds],
+    ledNodeIds: [...item.ledNodeIds],
+  }));
+
+  const maxDefId = defs.reduce((maxId, item) => Math.max(maxId, item.id), def.id);
+
+  return {
+    version: 1,
+    nodes: [
+      {
+        id: 1,
+        type: "IC",
+        x: GRID_SIZE * 4,
+        y: GRID_SIZE * 4,
+        value: false,
+        rotation: 0,
+        icDefId: def.id,
+      },
+    ],
+    notes: [],
+    wires: [],
+    icDefinitions: defs,
+    nextIds: {
+      nextNodeId: 2,
+      nextWireId: 1,
+      nextICId: maxDefId + 1,
+      nextNoteId: 1,
+    },
+  };
+}
+
+async function startIcToolboxUploadFlow() {
   if (!currentUser) {
     toast("Log in first to upload to the IC Library.");
     showOverlay(accountOverlay);
     return;
   }
 
-  const defaultName = (currentCircuitTitle && String(currentCircuitTitle)) || "New IC";
+  const shouldReopenOverlay = !icToolboxOverlay.classList.contains("hidden");
+  if (shouldReopenOverlay) {
+    hideOverlay(icToolboxOverlay);
+  }
 
-  const m = showModal({
+  const pickedDef = await promptIcDefinitionForToolboxUpload();
+  if (!pickedDef) {
+    if (shouldReopenOverlay) {
+      showOverlay(icToolboxOverlay);
+      void refreshToolbox();
+    }
+    return;
+  }
+
+  const name = await promptTextModal({
     title: "Upload to IC Library",
-    bodyHTML: `
-      <div style="display:grid;gap:10px;">
-        <div style="font-size:12px;color:#6b7280;line-height:1.35;">
-          The IC Library is for reusable modules.
-          To upload, your board must contain <b>exactly one IC block</b> and <b>no wires</b>.
-        </div>
-
-        <div style="display:grid;gap:6px;">
-          <label style="font-size:12px;color:#4b5563;">IC Name</label>
-          <input class="toolbox-name" type="text" value="${escapeHtml(defaultName)}" />
-        </div>
-
-        <div style="font-size:12px;color:#6b7280;">
-          Tip: Select nodes → Create IC → place that IC alone on a blank board → upload.
-        </div>
-      </div>
-    `,
+    label: "IC name",
+    value: pickedDef.name,
+    hint: "This uploads the selected IC from the left column. Nested ICs inside it come along automatically.",
+    submitLabel: "Upload",
+    validate: (value) => (!value.trim() ? "Give the upload a name first." : null),
   });
+  if (!name) {
+    if (shouldReopenOverlay) {
+      showOverlay(icToolboxOverlay);
+      void refreshToolbox();
+    }
+    return;
+  }
 
-  m.setButtons([
-    { label: "Cancel", kind: "ghost", onClick: ({ close }) => close() },
-    {
-      label: "Upload",
-      kind: "primary",
-      onClick: async ({ close, modal }) => {
-        const nameEl = modal.querySelector<HTMLInputElement>(".toolbox-name");
-        const name = nameEl?.value.trim() || "New IC";
+  try {
+    const data = buildSingleIcToolboxSave(pickedDef);
+    await uploadSingleIcToToolbox(data, name);
+    toast("Uploaded to IC Library.");
+    if (shouldReopenOverlay) {
+      showOverlay(icToolboxOverlay);
+      await refreshToolbox();
+    }
+  } catch (err: any) {
+    console.error(err);
+    toast(err?.message || "Upload failed.");
+    if (shouldReopenOverlay) {
+      showOverlay(icToolboxOverlay);
+      void refreshToolbox();
+    }
+  }
+}
 
-        try {
-          const data = makeSaveObject();
-          await uploadSingleIcToToolbox(data, name);
-          close();
-          toast("Uploaded to IC Library.");
-          await refreshToolbox();
-        } catch (err: any) {
-          console.error(err);
-          toast(err?.message || "Upload failed.");
-        }
-      },
-    },
-  ]);
-
-  const input = m.modal.querySelector<HTMLInputElement>(".toolbox-name");
-  input?.focus();
-  input?.select();
+// Upload a selected palette IC into the toolbox
+icToolboxUploadBtn?.addEventListener("click", () => {
+  void startIcToolboxUploadFlow();
 });
 
 
@@ -6709,8 +10833,9 @@ uploadToolboxButton.addEventListener("click", (ev) => {
 // ============================================================
 // IC TOOLBOX HELPERS
 // ============================================================
-// The IC toolbox is meant to store only "single IC on empty board"
-// layouts, like a blank grid with exactly one IC block, nothing else.
+// The IC toolbox stores a portable "single IC on an empty board" payload,
+// but we now build that payload directly from a palette IC definition
+// instead of asking the user to stage it in the workspace first.
 //
 // Use `isSingleIcBoard(save)` before uploading to toolbox.
 // Use `uploadSingleIcToToolbox(save, name)` as a helper.
@@ -6861,6 +10986,16 @@ function importIcFromToolbox(entry: ToolboxEntry) {
       inputNodeIds: [...oldDef.inputNodeIds],
       outputNodeIds: [...oldDef.outputNodeIds],
       ledNodeIds: [...oldDef.ledNodeIds],
+      paletteHidden: !!oldDef.paletteHidden,
+      compactLayout: oldDef.compactLayout ? { ...oldDef.compactLayout } : undefined,
+      builtinKind: oldDef.builtinKind,
+      snakeGameId: oldDef.snakeGameId,
+      snakeRowIndex: oldDef.snakeRowIndex,
+      snakeColumnIndex: oldDef.snakeColumnIndex,
+      snakeGridWidth: oldDef.snakeGridWidth,
+      snakeGridHeight: oldDef.snakeGridHeight,
+      snakeCellScale: oldDef.snakeCellScale,
+      snakeTickMs: oldDef.snakeTickMs,
     };
   });
 

@@ -33,6 +33,16 @@ export interface ToolboxIC {
   createdAt: number;
 }
 
+export interface WorkspaceDraft {
+  key: string;
+  ownerId: number;
+  ownerGoogleSub?: string;
+  title: string;
+  visibility: Visibility;
+  data: any;
+  updatedAt: number;
+}
+
 interface StorageMetadata {
   schemaVersion: number;
   appliedBundledSnapshotHashes: string[];
@@ -45,6 +55,7 @@ export interface DataStore {
   users: User[];
   circuits: Circuit[];
   toolboxICs: ToolboxIC[];
+  workspaceDrafts: WorkspaceDraft[];
   metadata: StorageMetadata;
 }
 
@@ -56,7 +67,7 @@ export interface RuntimeStorage {
   save: () => void;
 }
 
-const STORAGE_SCHEMA_VERSION = 1;
+const STORAGE_SCHEMA_VERSION = 2;
 const DEFAULT_STORAGE_FILENAME = "cirkit-data.json";
 
 function emptyStore(): DataStore {
@@ -67,6 +78,7 @@ function emptyStore(): DataStore {
     users: [],
     circuits: [],
     toolboxICs: [],
+    workspaceDrafts: [],
     metadata: {
       schemaVersion: STORAGE_SCHEMA_VERSION,
       appliedBundledSnapshotHashes: [],
@@ -117,6 +129,27 @@ function buildToolboxKey(candidate: any): string {
     name: candidate?.name ?? "",
     description: candidate?.description ?? "",
     createdAt: candidate?.createdAt ?? null,
+    data: candidate?.data ?? null,
+  }).slice(0, 16);
+}
+
+function buildWorkspaceDraftKey(candidate: any): string {
+  if (typeof candidate?.key === "string" && candidate.key.trim()) {
+    return candidate.key.trim();
+  }
+
+  const googleSub =
+    typeof candidate?.ownerGoogleSub === "string" && candidate.ownerGoogleSub.trim()
+      ? candidate.ownerGoogleSub.trim()
+      : "";
+  if (googleSub) {
+    return "draft-" + googleSub;
+  }
+
+  return "draft-" + stableDigest({
+    ownerId: candidate?.ownerId ?? null,
+    title: candidate?.title ?? "",
+    visibility: candidate?.visibility ?? "private",
     data: candidate?.data ?? null,
   }).slice(0, 16);
 }
@@ -213,6 +246,33 @@ function normalizeToolboxEntry(candidate: any): ToolboxIC | null {
   };
 }
 
+function normalizeWorkspaceDraft(candidate: any): WorkspaceDraft | null {
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+
+  if (typeof candidate.title !== "string" || !candidate.title.trim()) {
+    return null;
+  }
+
+  const ownerGoogleSub =
+    typeof candidate.ownerGoogleSub === "string" && candidate.ownerGoogleSub.trim()
+      ? candidate.ownerGoogleSub.trim()
+      : undefined;
+
+  return {
+    key: buildWorkspaceDraftKey(candidate),
+    ownerId: toPositiveInteger(candidate.ownerId, 1),
+    ownerGoogleSub,
+    title: candidate.title,
+    visibility: normalizeVisibility(candidate.visibility),
+    data: candidate.data,
+    updatedAt: Number.isFinite(Number(candidate.updatedAt))
+      ? Number(candidate.updatedAt)
+      : Date.now(),
+  };
+}
+
 function nextIdFrom(values: number[], fallback: number): number {
   if (!values.length) {
     return fallback;
@@ -259,6 +319,17 @@ function normalizeStore(raw: unknown): DataStore {
         }))
     : [];
 
+  const workspaceDrafts = Array.isArray(candidate.workspaceDrafts)
+    ? candidate.workspaceDrafts
+        .map(normalizeWorkspaceDraft)
+        .filter((item): item is WorkspaceDraft => item !== null)
+        .map((draft) => ({
+          ...draft,
+          ownerGoogleSub:
+            draft.ownerGoogleSub || usersById.get(draft.ownerId)?.googleSub,
+        }))
+    : [];
+
   const metadataCandidate =
     candidate.metadata && typeof candidate.metadata === "object"
       ? (candidate.metadata as Record<string, unknown>)
@@ -291,6 +362,7 @@ function normalizeStore(raw: unknown): DataStore {
     users,
     circuits,
     toolboxICs,
+    workspaceDrafts,
     metadata,
   };
 }
@@ -506,10 +578,51 @@ function mergeToolboxEntries(target: DataStore, source: DataStore) {
   }
 }
 
+function mergeWorkspaceDrafts(target: DataStore, source: DataStore) {
+  const draftsByKey = new Map(target.workspaceDrafts.map((draft) => [draft.key, draft]));
+
+  for (const sourceDraft of source.workspaceDrafts) {
+    const owner = findUserBySourceOwner(
+      target,
+      source,
+      sourceDraft.ownerGoogleSub,
+      sourceDraft.ownerId
+    );
+    if (!owner) {
+      console.warn("Skipping workspace draft import with unresolved owner:", sourceDraft.title);
+      continue;
+    }
+
+    const existing = draftsByKey.get(sourceDraft.key);
+    if (existing) {
+      existing.ownerId = owner.id;
+      existing.ownerGoogleSub = owner.googleSub;
+      existing.title = sourceDraft.title;
+      existing.visibility = sourceDraft.visibility;
+      existing.data = sourceDraft.data;
+      existing.updatedAt = sourceDraft.updatedAt;
+      continue;
+    }
+
+    const draft: WorkspaceDraft = {
+      key: sourceDraft.key,
+      ownerId: owner.id,
+      ownerGoogleSub: owner.googleSub,
+      title: sourceDraft.title,
+      visibility: sourceDraft.visibility,
+      data: sourceDraft.data,
+      updatedAt: sourceDraft.updatedAt,
+    };
+    target.workspaceDrafts.push(draft);
+    draftsByKey.set(draft.key, draft);
+  }
+}
+
 function mergeBundledStoreIntoPersistent(target: DataStore, source: DataStore) {
   mergeUsers(target, source);
   mergeCircuits(target, source);
   mergeToolboxEntries(target, source);
+  mergeWorkspaceDrafts(target, source);
 }
 
 export function initializeStorage(): RuntimeStorage {
