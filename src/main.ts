@@ -13,6 +13,7 @@ type NodeType =
   | "GUIDE"
   | "CABLE"
   | "CLOCK"
+  | "DFF"
   | "BUFFER"
   | "KEY"
   | "AND"
@@ -30,6 +31,8 @@ interface NodeData {
   y: number;
   value: boolean;
   rotation?: number;
+  titleText?: string;
+  badgeText?: string;
   icDefId?: number;
   lightColor?: string;
   clockDelayMs?: number;
@@ -102,14 +105,6 @@ interface ICDefinition {
   ledNodeIds: number[];
   paletteHidden?: boolean;
   compactLayout?: ICCompactLayout;
-  builtinKind?: "snake_column" | "snake_status";
-  snakeGameId?: string;
-  snakeRowIndex?: number;
-  snakeColumnIndex?: number;
-  snakeGridWidth?: number;
-  snakeGridHeight?: number;
-  snakeCellScale?: number;
-  snakeTickMs?: number;
 }
 
 const GRID_SIZE = 24;
@@ -135,7 +130,7 @@ const GUIDE_SLOT_HOLE_SIZE = 12;
 const GUIDE_BODY_PADDING = 8;
 const DEFAULT_CABLE_CHANNELS = 4;
 const MIN_CABLE_CHANNELS = 1;
-const MAX_CABLE_CHANNELS = 12;
+const MAX_CABLE_CHANNELS = 96;
 const DEFAULT_CABLE_LENGTH = 168;
 const MIN_CABLE_LENGTH = 96;
 const MAX_CABLE_LENGTH = 720;
@@ -153,6 +148,7 @@ const DISPLAY_SCREEN_PIXEL_SIZE = 14;
 const DISPLAY_SCREEN_PIXEL_GAP = 3;
 const DISPLAY_SCREEN_FRAME = 12;
 const DISPLAY_SECTION_GAP = 14;
+const TIC_TAC_TOE_BOARD_SIZE = 3;
 const WORKSPACE_BASE_WIDTH = 3200;
 const WORKSPACE_BASE_HEIGHT = 6200;
 const MIN_WORKSPACE_ZOOM = 0.35;
@@ -225,6 +221,36 @@ const nodeElements = new Map<number, HTMLDivElement>();
 const portElements = new Map<string, HTMLDivElement>();
 const wirePathElements = new Map<number, SVGPathElement>();
 
+interface IcDefinitionSimulationCache {
+  nodeById: Map<number, NodeData>;
+  relevantNodeIds: Set<number> | null;
+  relevantNodeIdList: number[];
+  inputIndexByNodeId: Map<number, number>;
+  wireEntries: { wire: ICDefinition["wires"][number]; index: number }[];
+}
+
+const icDefinitionMap = new Map<number, ICDefinition>();
+const icDefinitionSimulationCaches = new Map<number, IcDefinitionSimulationCache>();
+let icDefinitionsDirty = true;
+
+function markIcDefinitionsDirty() {
+  icDefinitionsDirty = true;
+  icDefinitionSimulationCaches.clear();
+}
+
+function ensureIcDefinitionCaches() {
+  if (!icDefinitionsDirty) return;
+  icDefinitionMap.clear();
+  icDefinitions.forEach((def) => icDefinitionMap.set(def.id, def));
+  icDefinitionsDirty = false;
+}
+
+function getIcDefinitionById(icDefId: number | null | undefined): ICDefinition | undefined {
+  if (typeof icDefId !== "number") return undefined;
+  ensureIcDefinitionCaches();
+  return icDefinitionMap.get(icDefId);
+}
+
 let dragState: WireDragState | null = null;
 let hoveredDisplayPortId: string | null = null;
 
@@ -280,35 +306,9 @@ interface IcRuntimeState {
   wireStates: boolean[];
   bufferLastInput: Map<number, boolean>;
   bufferTimeouts: Map<number, Set<number>>;
+  dffLastClockInput: Map<number, boolean>;
   clockTimers: Map<number, number>;
   clockLastTickAt: Map<number, number>;
-}
-
-type SnakeDirection = "up" | "left" | "down" | "right";
-
-interface SnakeGameCell {
-  x: number;
-  y: number;
-}
-
-interface SnakeGameState {
-  gameId: string;
-  gridWidth: number;
-  gridHeight: number;
-  cellScale: number;
-  tickMs: number;
-  snake: SnakeGameCell[];
-  direction: SnakeDirection;
-  pendingDirection: SnakeDirection;
-  food: SnakeGameCell;
-  lastTickAt: number;
-  timerId: number | null;
-  gameOver: boolean;
-  foodPulseUntil: number;
-  crashPulseUntil: number;
-  score: number;
-  lastAdvancedEpoch: number;
-  lastInputEpoch: number;
 }
 
 interface IcSpeakerState {
@@ -322,10 +322,10 @@ const clockTimers = new Map<number, number>();
 const clockLastTickAt = new Map<number, number>();
 const bufferLastInput = new Map<number, boolean>();
 const bufferTimeouts = new Map<number, Set<number>>();
+const dffLastClockInput = new Map<number, boolean>();
 const speakerVoices = new Map<number, SpeakerVoice>();
 const icSpeakerVoices = new Map<string, SpeakerVoice>();
 const icRuntimeStates = new Map<string, IcRuntimeState>();
-const snakeGameStates = new Map<string, SnakeGameState>();
 const workspaceIcResults = new Map<number, ICResult>();
 let pendingSignalRecomputeFrame: number | null = null;
 let pendingSignalRecomputeTimeout: number | null = null;
@@ -445,6 +445,24 @@ app.innerHTML = `
               <div class="palette-node">
                 <div class="node-header"><span class="node-title">CLOCK</span></div>
                 <div class="node-body"><div class="clock-icon"></div></div>
+              </div>
+            </button>
+          </div>
+        </section>
+
+        <section class="palette-section">
+          <div class="palette-section-title">Super Advanced</div>
+          <div class="palette-section-grid">
+            <button class="palette-item" data-node-type="DFF">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">DFF</span></div>
+                <div class="node-body">
+                  <div class="palette-dff-icon">
+                    <span class="palette-dff-label palette-dff-label-d">D</span>
+                    <span class="palette-dff-label palette-dff-label-clk">CLK</span>
+                    <span class="palette-dff-label palette-dff-label-q">Q</span>
+                  </div>
+                </div>
               </div>
             </button>
           </div>
@@ -659,6 +677,10 @@ paletteUploadCancelBtn.addEventListener("click", () => {
 
 let workspaceDirty = false;
 
+function hasReachedWorkspaceDraftThreshold() {
+  return workspaceChangeCount >= WORKSPACE_DRAFT_CHANGE_THRESHOLD;
+}
+
 function hasWorkspaceContent(): boolean {
   return (
     nodes.size > 0 ||
@@ -669,7 +691,8 @@ function hasWorkspaceContent(): boolean {
 }
 
 function updateUnsavedWarning() {
-  const shouldShow = workspaceDirty && hasWorkspaceContent();
+  const shouldShow =
+    workspaceDirty && hasWorkspaceContent() && hasReachedWorkspaceDraftThreshold();
   unsavedWarning.hidden = !shouldShow;
   if (!shouldShow) {
     unsavedWarning.textContent = "";
@@ -683,12 +706,21 @@ function updateUnsavedWarning() {
 
 function markWorkspaceChanged() {
   workspaceDirty = true;
+  const now = performance.now();
+  if (now - lastWorkspaceChangeCountAt >= WORKSPACE_CHANGE_COUNT_COOLDOWN_MS) {
+    workspaceChangeCount += 1;
+    lastWorkspaceChangeCountAt = now;
+  }
   updateUnsavedWarning();
-  scheduleWorkspaceDraftAutosave();
+  if (hasReachedWorkspaceDraftThreshold()) {
+    scheduleWorkspaceDraftAutosave();
+  }
 }
 
 function clearWorkspaceChanged() {
   workspaceDirty = false;
+  workspaceChangeCount = 0;
+  lastWorkspaceChangeCountAt = 0;
   if (draftAutosaveTimeoutId != null) {
     window.clearTimeout(draftAutosaveTimeoutId);
     draftAutosaveTimeoutId = null;
@@ -709,6 +741,9 @@ function getWorkspaceDraftPayload():
     }
   | null {
   if (!currentUser || mode === "ic-edit" || !workspaceDirty || !hasWorkspaceContent()) {
+    return null;
+  }
+  if (!hasReachedWorkspaceDraftThreshold()) {
     return null;
   }
 
@@ -804,6 +839,7 @@ function restoreWorkspaceDraft(draft: ServerWorkspaceDraft) {
   hideContextMenu();
   clearSelection();
   workspaceDirty = true;
+  workspaceChangeCount = WORKSPACE_DRAFT_CHANGE_THRESHOLD;
   updateUnsavedWarning();
   invalidateWorkspaceDraftAutosaveCache();
   scheduleWorkspaceDraftAutosave(1500);
@@ -878,6 +914,7 @@ async function maybePromptWorkspaceDraftRestore() {
 function setPreviewMode(nextPreviewMode: boolean) {
   previewMode = nextPreviewMode;
   previewToggle.textContent = previewMode ? "Mode: Viewing" : "Mode: Editing";
+  app.classList.toggle("is-previewing", previewMode);
 }
 
 function workspaceCoordsFromClientPoint(
@@ -919,6 +956,70 @@ function getNodeRotation(node: Pick<NodeData, "rotation">): number {
   const raw = node.rotation ?? 0;
   const normalized = ((Math.round(raw / 90) * 90) % 360 + 360) % 360;
   return normalized;
+}
+
+const RENAMEABLE_NODE_TYPES = new Set<NodeType>([
+  "SWITCH",
+  "BUTTON",
+  "POWER",
+  "KEY",
+  "OUTPUT",
+  "LED",
+  "SPEAKER",
+  "DISPLAY",
+  "NUMBER_DISPLAY",
+  "CLOCK",
+]);
+
+function isRenameableNodeType(type: NodeType): boolean {
+  return RENAMEABLE_NODE_TYPES.has(type);
+}
+
+function getDefaultNodeTitle(type: NodeType): string {
+  switch (type) {
+    case "SWITCH":
+      return "SWITCH";
+    case "BUTTON":
+      return "BUTTON";
+    case "POWER":
+      return "POWER";
+    case "KEY":
+      return "KEY";
+    case "OUTPUT":
+      return "OUTPUT";
+    case "LED":
+      return "LED";
+    case "SPEAKER":
+      return "SPEAKER";
+    case "DISPLAY":
+      return "DISPLAY";
+    case "NUMBER_DISPLAY":
+      return "NUMBER";
+    case "CLOCK":
+      return "CLOCK";
+    default:
+      return type;
+  }
+}
+
+function getVisibleNodeTitle(node: Pick<NodeData, "type" | "titleText">): string {
+  const custom = node.titleText?.trim();
+  return custom || getDefaultNodeTitle(node.type);
+}
+
+function getNodeHeaderActionReserve(type: NodeType): number {
+  let reserve = 0;
+  if (isRenameableNodeType(type)) reserve += 58;
+  if (type === "CLOCK" || type === "BUFFER") reserve += 50;
+  return reserve;
+}
+
+function getRenameableNodeWidth(node: Pick<NodeData, "type" | "titleText" | "badgeText">): number {
+  const title = getVisibleNodeTitle(node);
+  const actionReserve = getNodeHeaderActionReserve(node.type);
+  const badgeReserve = node.badgeText ? Math.min(34, 12 + node.badgeText.length * 6) : 0;
+  const titleReserve = 48 + Math.max(0, title.length - 6) * 6;
+  return clamp(Math.max(120, titleReserve + actionReserve + badgeReserve), 120, 240);
 }
 
 function getIcNodeLayout(def?: ICDefinition): {
@@ -982,6 +1083,8 @@ function getNodeLayoutSize(
     | "guideLength"
     | "cableChannels"
     | "cableLength"
+    | "titleText"
+    | "badgeText"
     | "x"
     | "y"
     | "cableStartX"
@@ -1018,7 +1121,7 @@ function getNodeLayoutSize(
     const geometry = getCableGeometry(node);
     return { w: geometry.width, h: geometry.height };
   }
-  return { w: 120, h: 64 };
+  return { w: getRenameableNodeWidth(node), h: 64 };
 }
 
 function updateZoomButtonLabel() {
@@ -1138,6 +1241,7 @@ function updateCableNodeGeometry(node: NodeData, el?: HTMLDivElement | null): Ca
   if (body) {
     body.style.width = `${geometry.width}px`;
     body.style.height = `${geometry.height}px`;
+    body.classList.toggle("is-dense", geometry.channels > 16);
   }
 
   const svg = cableEl.querySelector<SVGSVGElement>(".cable-lanes-svg");
@@ -1239,6 +1343,27 @@ function getSpeakerLayout(): SpeakerLayout {
 function getSpeakerPortId(nodeId: number, index: number): string {
   return `${nodeId}:in:${index}`;
 }
+
+const TIC_TAC_TOE_WINNING_LINES = [
+  [0, 1, 2],
+  [3, 4, 5],
+  [6, 7, 8],
+  [0, 3, 6],
+  [1, 4, 7],
+  [2, 5, 8],
+  [0, 4, 8],
+  [2, 4, 6],
+] as const;
+const TIC_TAC_TOE_MOVE_PRIORITY = [4, 0, 2, 6, 8, 1, 3, 5, 7] as const;
+const TIC_TAC_TOE_LINES_BY_CELL = Array.from(
+  { length: TIC_TAC_TOE_BOARD_SIZE * TIC_TAC_TOE_BOARD_SIZE },
+  (_, cellIndex) =>
+    TIC_TAC_TOE_WINNING_LINES.filter((line) =>
+      (line as readonly number[]).includes(cellIndex)
+    ).map(
+      (line) => line.filter((cell) => cell !== cellIndex) as [number, number]
+    )
+);
 
 function getDisplaySize(
   node: Pick<NodeData, "displayWidth" | "displayHeight">
@@ -1506,14 +1631,16 @@ function getCableLength(node: Pick<NodeData, "cableLength">): number {
 
 function getCableLayout(node: Pick<NodeData, "cableChannels">): CableLayout {
   const channels = getCableChannels(node);
+  const rowPitch =
+    channels > 48 ? 8 : channels > 24 ? 10 : channels > 12 ? 14 : CABLE_CHANNEL_PITCH;
   return {
     channels,
     bodyHeight:
       CABLE_PADDING_Y * 2 +
-      Math.max(0, channels - 1) * CABLE_CHANNEL_PITCH +
+      Math.max(0, channels - 1) * rowPitch +
       CABLE_SOCKET_SIZE,
     rowOffsets: Array.from({ length: channels }, (_, idx) =>
-      (idx - (channels - 1) / 2) * CABLE_CHANNEL_PITCH
+      (idx - (channels - 1) / 2) * rowPitch
     ),
   };
 }
@@ -1850,267 +1977,18 @@ function resetAllIcRuntimeState() {
     teardownIcRuntimeState(runtimeKey);
   });
   Array.from(icSpeakerVoices.keys()).forEach((key) => stopIcSpeakerVoice(key));
-  Array.from(snakeGameStates.keys()).forEach((gameId) => {
-    const state = snakeGameStates.get(gameId);
-    if (state?.timerId != null) {
-      window.clearInterval(state.timerId);
-    }
-    snakeGameStates.delete(gameId);
-  });
   workspaceIcResults.clear();
 }
 
-function snakeDirectionFromInputs(inputVals: boolean[]): SnakeDirection | null {
-  if (inputVals[0]) return "up";
-  if (inputVals[1]) return "left";
-  if (inputVals[2]) return "down";
-  if (inputVals[3]) return "right";
-  return null;
-}
-
-function getOppositeSnakeDirection(direction: SnakeDirection): SnakeDirection {
-  if (direction === "up") return "down";
-  if (direction === "down") return "up";
-  if (direction === "left") return "right";
-  return "left";
-}
-
-function getSnakeDirectionStep(direction: SnakeDirection): SnakeGameCell {
-  if (direction === "up") return { x: 0, y: -1 };
-  if (direction === "down") return { x: 0, y: 1 };
-  if (direction === "left") return { x: -1, y: 0 };
-  return { x: 1, y: 0 };
-}
-
-function createSnakeFood(state: SnakeGameState): SnakeGameCell {
-  const occupied = new Set(state.snake.map((cell) => `${cell.x},${cell.y}`));
-  const freeCells: SnakeGameCell[] = [];
-  for (let y = 0; y < state.gridHeight; y++) {
-    for (let x = 0; x < state.gridWidth; x++) {
-      const key = `${x},${y}`;
-      if (!occupied.has(key)) {
-        freeCells.push({ x, y });
-      }
-    }
-  }
-  if (!freeCells.length) {
-    return { x: state.gridWidth - 1, y: state.gridHeight - 1 };
-  }
-  return freeCells[Math.floor(Math.random() * freeCells.length)] ?? freeCells[0]!;
-}
-
-function resetSnakeGameState(state: SnakeGameState, now = performance.now()) {
-  const midY = Math.floor(state.gridHeight / 2);
-  const startX = Math.max(3, Math.floor(state.gridWidth / 4));
-  state.snake = [
-    { x: startX, y: midY },
-    { x: startX - 1, y: midY },
-    { x: startX - 2, y: midY },
-    { x: startX - 3, y: midY },
-  ];
-  state.direction = "right";
-  state.pendingDirection = "right";
-  state.food = createSnakeFood(state);
-  state.lastTickAt = now;
-  state.gameOver = false;
-  state.foodPulseUntil = 0;
-  state.crashPulseUntil = 0;
-  state.score = 0;
-  state.lastAdvancedEpoch = -1;
-  state.lastInputEpoch = -1;
-}
-
-function ensureSnakeGameState(
-  gameId: string,
-  gridWidth: number,
-  gridHeight: number,
-  cellScale: number,
-  tickMs: number
-): SnakeGameState {
-  const existing = snakeGameStates.get(gameId);
-  if (existing) {
-    existing.gridWidth = gridWidth;
-    existing.gridHeight = gridHeight;
-    existing.cellScale = cellScale;
-    existing.tickMs = tickMs;
-    return existing;
-  }
-
-  const state: SnakeGameState = {
-    gameId,
-    gridWidth,
-    gridHeight,
-    cellScale,
-    tickMs,
-    snake: [],
-    direction: "right",
-    pendingDirection: "right",
-    food: { x: 0, y: 0 },
-    lastTickAt: performance.now(),
-    timerId: null,
-    gameOver: false,
-    foodPulseUntil: 0,
-    crashPulseUntil: 0,
-    score: 0,
-    lastAdvancedEpoch: -1,
-    lastInputEpoch: -1,
-  };
-
-  resetSnakeGameState(state, performance.now());
-  state.timerId = window.setInterval(() => {
-    scheduleSignalRecompute();
-  }, Math.max(60, Math.min(160, Math.floor(tickMs / 2))));
-
-  snakeGameStates.set(gameId, state);
-  return state;
-}
-
-function applySnakeInputsToState(state: SnakeGameState, inputVals: boolean[]) {
-  const requestedDirection = snakeDirectionFromInputs(inputVals);
-  if (!requestedDirection) return;
-  const blocked =
-    state.snake.length > 1 &&
-    requestedDirection === getOppositeSnakeDirection(state.direction);
-  if (!blocked) {
-    state.pendingDirection = requestedDirection;
-  }
-  state.lastInputEpoch = signalRecomputeEpoch;
-}
-
-function advanceSnakeGameState(state: SnakeGameState, now = performance.now()) {
-  if (state.gameOver) {
-    if (now >= state.crashPulseUntil + state.tickMs * 2) {
-      resetSnakeGameState(state, now);
-    }
+function resetNodeValueForDefinition(node: NodeData) {
+  if (node.type === "POWER") {
+    node.value = true;
     return;
   }
-
-  if (now <= state.lastTickAt) return;
-  const elapsed = now - state.lastTickAt;
-  const steps = Math.min(8, Math.floor(elapsed / state.tickMs));
-  if (steps <= 0) return;
-
-  for (let stepIndex = 0; stepIndex < steps; stepIndex++) {
-    const nextDirection = state.pendingDirection;
-    const isReverse =
-      state.snake.length > 1 &&
-      nextDirection === getOppositeSnakeDirection(state.direction);
-    if (!isReverse) {
-      state.direction = nextDirection;
-    }
-
-    const head = state.snake[0] ?? { x: 1, y: 1 };
-    const delta = getSnakeDirectionStep(state.direction);
-    const nextHead = {
-      x: head.x + delta.x,
-      y: head.y + delta.y,
-    };
-
-    const willEat = nextHead.x === state.food.x && nextHead.y === state.food.y;
-    const bodyToCheck = willEat ? state.snake : state.snake.slice(0, -1);
-    const hitsBody = bodyToCheck.some((cell) => cell.x === nextHead.x && cell.y === nextHead.y);
-    const hitsWall =
-      nextHead.x < 0 ||
-      nextHead.x >= state.gridWidth ||
-      nextHead.y < 0 ||
-      nextHead.y >= state.gridHeight;
-
-    if (hitsBody || hitsWall) {
-      state.gameOver = true;
-      state.crashPulseUntil = state.lastTickAt + (stepIndex + 1) * state.tickMs + 520;
-      break;
-    }
-
-    state.snake = [nextHead, ...state.snake];
-    if (willEat) {
-      state.score += 1;
-      state.foodPulseUntil = state.lastTickAt + (stepIndex + 1) * state.tickMs + 420;
-      state.food = createSnakeFood(state);
-    } else {
-      state.snake.pop();
-    }
+  if (node.type === "DFF") {
+    return;
   }
-
-  state.lastTickAt += steps * state.tickMs;
-}
-
-function teardownSnakeGameState(gameId: string) {
-  const state = snakeGameStates.get(gameId);
-  if (!state) return;
-  if (state.timerId != null) {
-    window.clearInterval(state.timerId);
-  }
-  snakeGameStates.delete(gameId);
-}
-
-function pruneUnusedSnakeGameStates(activeGameIds: Set<string>) {
-  Array.from(snakeGameStates.keys()).forEach((gameId) => {
-    if (!activeGameIds.has(gameId)) {
-      teardownSnakeGameState(gameId);
-    }
-  });
-}
-
-function simulateBuiltinSnakeIc(def: ICDefinition, inputVals: boolean[]): ICResult {
-  const gameId = def.snakeGameId ?? `snake:${def.id}`;
-  const gridWidth = Math.max(1, def.snakeGridWidth ?? 24);
-  const gridHeight = Math.max(1, def.snakeGridHeight ?? 16);
-  const cellScale = Math.max(1, def.snakeCellScale ?? 1);
-  const tickMs = Math.max(80, def.snakeTickMs ?? 220);
-  const state = ensureSnakeGameState(gameId, gridWidth, gridHeight, cellScale, tickMs);
-
-  if (def.builtinKind === "snake_status") {
-    applySnakeInputsToState(state, inputVals);
-  }
-  const shouldAdvance =
-    state.lastAdvancedEpoch !== signalRecomputeEpoch &&
-    (def.builtinKind === "snake_status" || state.lastInputEpoch !== signalRecomputeEpoch);
-  if (shouldAdvance) {
-    advanceSnakeGameState(state, performance.now());
-    state.lastAdvancedEpoch = signalRecomputeEpoch;
-  }
-
-  const nodeValues = new Map<number, boolean>();
-  const portOutputs = new Map<string, boolean>();
-  def.inputNodeIds.forEach((nodeId, index) => {
-    nodeValues.set(nodeId, !!inputVals[index]);
-  });
-
-  let outputs: boolean[] = [];
-  if (def.builtinKind === "snake_status") {
-    const now = performance.now();
-    const columnOutputs = Array.from({ length: gridWidth }, (_, columnIndex) =>
-      state.snake.some((cell) => cell.x === columnIndex) || state.food.x === columnIndex
-    );
-    outputs = [now <= state.foodPulseUntil, now <= state.crashPulseUntil, ...columnOutputs];
-  } else {
-    const columnIndex = clamp(def.snakeColumnIndex ?? 0, 0, gridWidth - 1);
-    const columnEnabled = inputVals[0] ?? true;
-    outputs = new Array(def.outputNodeIds.length).fill(false).map((_, outputIndex) => {
-      if (!columnEnabled) return false;
-      if (outputIndex >= gridHeight) return false;
-      const occupiedBySnake = state.snake.some(
-        (cell) => cell.x === columnIndex && cell.y === outputIndex
-      );
-      const occupiedByFood = state.food.x === columnIndex && state.food.y === outputIndex;
-      return occupiedBySnake || occupiedByFood;
-    });
-  }
-
-  def.outputNodeIds.forEach((nodeId, index) => {
-    const isOn = outputs[index] ?? false;
-    nodeValues.set(nodeId, isOn);
-    portOutputs.set(`${nodeId}:in:0`, isOn);
-  });
-
-  return {
-    outputs,
-    ledStates: [],
-    portOutputs,
-    nodeValues,
-    wireStates: [],
-    speakerStates: [],
-  };
+  node.value = false;
 }
 
 function pruneUnusedIcRuntimeTrees(activeRoots: Set<string>) {
@@ -2179,6 +2057,7 @@ function ensureIcRuntimeState(def: ICDefinition, runtimeKey: string): IcRuntimeS
     wireStates: new Array(def.wires.length).fill(false),
     bufferLastInput: new Map<number, boolean>(),
     bufferTimeouts: new Map<number, Set<number>>(),
+    dffLastClockInput: new Map<number, boolean>(),
     clockTimers: new Map<number, number>(),
     clockLastTickAt: new Map<number, number>(),
   };
@@ -2207,6 +2086,8 @@ function ensureIcRuntimeState(def: ICDefinition, runtimeKey: string): IcRuntimeS
       runtime.clockTimers.set(clonedNode.id, timerId);
     } else if (clonedNode.type === "BUFFER") {
       runtime.bufferLastInput.set(clonedNode.id, false);
+    } else if (clonedNode.type === "DFF") {
+      runtime.dffLastClockInput.set(clonedNode.id, false);
     }
   });
 
@@ -2375,6 +2256,10 @@ function initializeNodeDynamicBehavior(node: NodeData) {
     if (!bufferLastInput.has(node.id)) {
       bufferLastInput.set(node.id, false);
     }
+  } else if (node.type === "DFF") {
+    if (!dffLastClockInput.has(node.id)) {
+      dffLastClockInput.set(node.id, false);
+    }
   }
 }
 
@@ -2394,6 +2279,7 @@ function teardownNodeDynamicBehavior(nodeId: number) {
   clockLastTickAt.delete(nodeId);
   clearBufferTimeouts(nodeId);
   bufferLastInput.delete(nodeId);
+  dffLastClockInput.delete(nodeId);
   stopSpeakerVoice(nodeId);
 }
 
@@ -2415,6 +2301,9 @@ function createNode(type: NodeType, x: number, y: number): NodeData {
   }
   if (type === "CLOCK") {
     node.clockDelayMs = 100;
+  }
+  if (type === "DFF") {
+    node.value = false;
   }
   if (type === "BUFFER") {
     node.bufferDelayMs = 100;
@@ -2722,6 +2611,113 @@ interface IcPreviewRenderState {
   wireStates?: boolean[];
   portOutputs?: Map<string, boolean>;
   ledStates?: boolean[];
+  activeIncomingPorts?: Set<string>;
+}
+
+function shouldUseStaticIcPreview(def?: ICDefinition): boolean {
+  if (!def) return true;
+  const layout = getIcNodeLayout(def);
+  return (
+    def.nodes.length > 48 ||
+    def.wires.length > 96 ||
+    def.outputNodeIds.length > 24 ||
+    layout.bodyHeight > 520
+  );
+}
+
+function renderStaticIcPreviewSummary(
+  _def: ICDefinition,
+  width: number,
+  height: number
+): string {
+  const chipInset = 8;
+  const bodyX = chipInset;
+  const bodyY = chipInset;
+  const bodyW = Math.max(24, width - chipInset * 2);
+  const bodyH = Math.max(24, height - chipInset * 2);
+  const insetX = 14;
+  const insetY = 12;
+  const innerX = bodyX + insetX;
+  const innerY = bodyY + insetY;
+  const innerW = Math.max(20, bodyW - insetX * 2);
+  const innerH = Math.max(20, bodyH - insetY * 2);
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg"
+         width="${width}" height="${height}"
+         viewBox="0 0 ${width} ${height}"
+         preserveAspectRatio="xMidYMid meet">
+      <rect x="${bodyX}" y="${bodyY}" width="${bodyW}" height="${bodyH}" rx="12"
+        fill="rgba(255,255,255,0.94)" stroke="rgba(148,163,184,0.3)" stroke-width="1.5" />
+      <rect x="${innerX}" y="${innerY}" width="${innerW}" height="${innerH}" rx="11"
+        fill="rgba(248,250,252,0.88)"
+        stroke="rgba(148,163,184,0.16)" stroke-width="1.2" />
+    </svg>
+  `.trim();
+}
+
+function getRelevantIcNodeIds(def: ICDefinition): Set<number> {
+  const seeds = [
+    ...def.outputNodeIds,
+    ...def.ledNodeIds,
+    ...def.nodes
+      .filter((node) => node.type === "SPEAKER")
+      .map((node) => node.id),
+  ];
+  if (seeds.length === 0) {
+    return new Set(def.nodes.map((node) => node.id));
+  }
+
+  const reverse = new Map<number, number[]>();
+  def.wires.forEach((wire) => {
+    const arr = reverse.get(wire.toNodeId) ?? [];
+    arr.push(wire.fromNodeId);
+    reverse.set(wire.toNodeId, arr);
+  });
+
+  const visited = new Set<number>();
+  const queue = [...seeds];
+  while (queue.length > 0) {
+    const nodeId = queue.shift()!;
+    if (visited.has(nodeId)) continue;
+    visited.add(nodeId);
+    reverse.get(nodeId)?.forEach((prevId) => {
+      if (!visited.has(prevId)) queue.push(prevId);
+    });
+  }
+  return visited;
+}
+
+function getIcDefinitionSimulationCache(def: ICDefinition): IcDefinitionSimulationCache {
+  const cached = icDefinitionSimulationCaches.get(def.id);
+  if (cached) return cached;
+
+  const nodeById = new Map<number, NodeData>();
+  def.nodes.forEach((node) => nodeById.set(node.id, node));
+
+  const relevantNodeIds =
+    def.nodes.length > 72 || def.wires.length > 128 ? getRelevantIcNodeIds(def) : null;
+  const relevantNodeIdList = relevantNodeIds
+    ? def.nodes.filter((node) => relevantNodeIds.has(node.id)).map((node) => node.id)
+    : def.nodes.map((node) => node.id);
+  const inputIndexByNodeId = new Map<number, number>();
+  def.inputNodeIds.forEach((nodeId, index) => inputIndexByNodeId.set(nodeId, index));
+  const wireEntries = def.wires
+    .map((wire, index) => ({ wire, index }))
+    .filter(
+      ({ wire }) =>
+        !relevantNodeIds ||
+        (relevantNodeIds.has(wire.fromNodeId) && relevantNodeIds.has(wire.toNodeId))
+    );
+
+  const nextCache: IcDefinitionSimulationCache = {
+    nodeById,
+    relevantNodeIds,
+    relevantNodeIdList,
+    inputIndexByNodeId,
+    wireEntries,
+  };
+  icDefinitionSimulationCaches.set(def.id, nextCache);
+  return nextCache;
 }
 
 interface IcPreviewWireRef {
@@ -2902,6 +2898,7 @@ function previewLabelForNode(node: NodeData, icDefMap: Map<number, ICDefinition>
   if (node.type === "SPEAKER") return "SPK";
   if (node.type === "DISPLAY") return "DSP";
   if (node.type === "CLOCK") return "CLK";
+  if (node.type === "DFF") return "DFF";
   return node.type;
 }
 
@@ -3030,9 +3027,10 @@ function renderPreviewSimpleNode(
     const pixels = Array.from({ length: Math.min(layout.pixelCount, 16) }, (_, index) => {
       const col = index % Math.min(layout.width, 4);
       const row = Math.floor(index / Math.min(layout.width, 4));
+      const isOn = state?.activeIncomingPorts?.has(`${node.id}:in:${index}`) ?? false;
       return `<rect x="${18 + col * (pixelSize + 2)}" y="${14 + row * (pixelSize + 2)}"
         width="${pixelSize}" height="${pixelSize}" rx="1"
-        fill="${active && index % 2 === 0 ? "#f8fafc" : "#111827"}" />`;
+        fill="${isOn ? "#f8fafc" : "#111827"}" />`;
     }).join("");
     return `
       <g transform="translate(${node.x},${node.y})">
@@ -3086,16 +3084,28 @@ function renderPreviewSimpleNode(
 
   if (node.type === "CABLE") {
     const geometry = getCableGeometry(node);
-    const lanes = geometry.rowOffsets
-      .map((rowOffset, channel) => {
+    const visibleLaneIndexes =
+      geometry.channels > 16
+        ? geometry.rowOffsets
+            .map((_rowOffset, channel) => channel)
+            .filter(
+              (channel) =>
+                channel === 0 ||
+                channel === geometry.channels - 1 ||
+                channel % Math.max(1, Math.round(geometry.channels / 6)) === 0
+            )
+        : geometry.rowOffsets.map((_rowOffset, channel) => channel);
+    const lanes = visibleLaneIndexes
+      .map((channel) => {
+        const realRowOffset = geometry.rowOffsets[channel] ?? 0;
         const color = getCableChannelColor(channel);
-        const startY = geometry.startLocalY + rowOffset;
-        const endY = geometry.endLocalY + rowOffset;
+        const startY = geometry.startLocalY + realRowOffset;
+        const endY = geometry.endLocalY + realRowOffset;
         return `
           <line x1="${geometry.startLocalX}" y1="${startY}" x2="${geometry.endLocalX}" y2="${endY}"
-                stroke="${color}" stroke-opacity="0.5" stroke-width="6" stroke-linecap="round" />
-          <circle cx="${geometry.startLocalX}" cy="${startY}" r="5.5" fill="#ffffff" stroke="${color}" stroke-width="3" />
-          <circle cx="${geometry.endLocalX}" cy="${endY}" r="5.5" fill="#ffffff" stroke="${color}" stroke-width="3" />
+                stroke="${color}" stroke-opacity="${geometry.channels > 16 ? "0.18" : "0.5"}" stroke-width="${geometry.channels > 16 ? "3" : "6"}" stroke-linecap="round" />
+          <circle cx="${geometry.startLocalX}" cy="${startY}" r="${geometry.channels > 16 ? "3.5" : "5.5"}" fill="#ffffff" stroke="${color}" stroke-width="2.2" />
+          <circle cx="${geometry.endLocalX}" cy="${endY}" r="${geometry.channels > 16 ? "3.5" : "5.5"}" fill="#ffffff" stroke="${color}" stroke-width="2.2" />
         `;
       })
       .join("");
@@ -3124,6 +3134,28 @@ function renderPreviewSimpleNode(
               fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round" />
         <line x1="${iconCx + iconR}" y1="${iconCy}" x2="${leadEndX}" y2="${iconCy}"
               stroke="#0f172a" stroke-width="3" stroke-linecap="round" />
+      </g>
+    `;
+  }
+
+  if (node.type === "DFF") {
+    const dY = 22;
+    const clkY = h - 20;
+    const qY = h / 2;
+    return `
+      <g transform="translate(${node.x},${node.y})">
+        <rect x="16" y="8" width="${w - 32}" height="${h - 16}" rx="9"
+              fill="${fill}" stroke="${stroke}" stroke-width="3" />
+        <text x="28" y="${dY + 4}" font-family="ui-monospace, Menlo, Monaco, Consolas, 'Courier New', monospace"
+              font-size="8" fill="#475569">D</text>
+        <text x="24" y="${clkY + 4}" font-family="ui-monospace, Menlo, Monaco, Consolas, 'Courier New', monospace"
+              font-size="7.5" fill="#475569">CLK</text>
+        <text x="${w - 28}" y="${qY + 4}" text-anchor="middle"
+              font-family="ui-monospace, Menlo, Monaco, Consolas, 'Courier New', monospace"
+              font-size="8" fill="#475569">Q</text>
+        <text x="${w / 2}" y="${h / 2 + 4}" text-anchor="middle"
+              font-family="ui-monospace, Menlo, Monaco, Consolas, 'Courier New', monospace"
+              font-size="10" fill="#0f172a">${active ? "1" : "0"}</text>
       </g>
     `;
   }
@@ -3220,14 +3252,6 @@ function renderIcPreviewSvg(opts: {
   height: number;
   state?: IcPreviewRenderState;
 }): string {
-  if (opts.def.builtinKind === "snake_status") {
-    return "";
-  }
-
-  if (opts.def.builtinKind === "snake_column") {
-    return "";
-  }
-
   const icDefMap = new Map<number, ICDefinition>();
   (opts.icDefinitions ?? icDefinitions).forEach((d) => icDefMap.set(d.id, d));
   icDefMap.set(opts.def.id, opts.def);
@@ -3250,6 +3274,16 @@ function renderIcPreviewSvg(opts: {
   });
   const wireStates = opts.state?.wireStates ?? [];
   const isWireActive = (wireIndex: number) => !!wireStates[wireIndex];
+  const activeIncomingPorts = new Set<string>();
+  scene.wires.forEach(({ wire, index }) => {
+    if (isWireActive(index)) {
+      activeIncomingPorts.add(wire.toPortId);
+    }
+  });
+  const previewState: IcPreviewRenderState = {
+    ...opts.state,
+    activeIncomingPorts,
+  };
 
   const hasActiveIncoming = (nodeId: number, slot?: "a" | "b") =>
     scene.wires.some(({ wire, index }) => {
@@ -3269,17 +3303,6 @@ function renderIcPreviewSvg(opts: {
     if (node) return portPosForPreview(node, portId, icDefMap, scene.portAnchors);
     return getPreviewAnchorFromStore(scene.portAnchors, portId);
   };
-
-  if (previewTooLarge) {
-    return `
-      <svg xmlns="http://www.w3.org/2000/svg"
-           width="${opts.width}" height="${opts.height}"
-           viewBox="${bounds.minX} ${bounds.minY} ${vbW} ${vbH}"
-           preserveAspectRatio="xMidYMid meet">
-        ${ledStackSvg}
-      </svg>
-    `.trim();
-  }
 
   const wiresSvg = scene.wires
     .map(({ wire, index }) => {
@@ -3342,7 +3365,7 @@ function renderIcPreviewSvg(opts: {
           icDefMap,
           scene.portAnchors
         );
-        const keyOn = !!opts.state?.nodeValues?.get(node.id);
+        const keyOn = !!previewState.nodeValues?.get(node.id);
         const label = escapeHtml((node.keyChar ?? "?").toUpperCase());
         const keyWidth = 30;
         const keyHeight = 16;
@@ -3366,16 +3389,32 @@ function renderIcPreviewSvg(opts: {
         const nestedDef = icDefMap.get(node.icDefId ?? -1);
         const nestedName = escapeHtml((nestedDef?.name ?? "IC").trim() || "IC");
         const nestedLayout = getIcNodeLayout(nestedDef);
-        const nestedWidth = Math.max(52, Math.min(nestedLayout.nodeWidth, 132));
-        const nestedHeight = Math.max(30, Math.min(nestedLayout.bodyHeight, 82));
+        const nestedScale = Math.min(
+          1,
+          138 / Math.max(1, nestedLayout.nodeWidth),
+          188 / Math.max(1, nestedLayout.bodyHeight)
+        );
+        const nestedWidth = Math.max(
+          52,
+          Math.min(138, Math.round(nestedLayout.nodeWidth * nestedScale))
+        );
+        const nestedHeight = Math.max(
+          30,
+          Math.min(188, Math.round(nestedLayout.bodyHeight * nestedScale))
+        );
+        const showNestedLabel = nestedHeight >= 42;
         return `
           <g>
             <rect x="${node.x}" y="${node.y}" width="${nestedWidth}" height="${nestedHeight}" rx="8"
               fill="#f8fafc" stroke="rgba(15,23,42,0.32)" stroke-width="1.7" />
-            <text x="${node.x + 8}" y="${node.y + 12}"
-              font-family="ui-monospace, Menlo, Monaco, Consolas, 'Courier New', monospace"
-              font-size="7.4" font-weight="700" fill="#475569"
-              textLength="${Math.max(20, nestedWidth - 16)}" lengthAdjust="spacingAndGlyphs">${nestedName}</text>
+            ${
+              showNestedLabel
+                ? `<text x="${node.x + 8}" y="${node.y + 12}"
+                    font-family="ui-monospace, Menlo, Monaco, Consolas, 'Courier New', monospace"
+                    font-size="7.4" font-weight="700" fill="#475569"
+                    textLength="${Math.max(20, nestedWidth - 16)}" lengthAdjust="spacingAndGlyphs">${nestedName}</text>`
+                : ""
+            }
           </g>
         `.trim();
       }
@@ -3390,15 +3429,27 @@ function renderIcPreviewSvg(opts: {
       ) {
         return renderPreviewGateNode(
           node,
-          opts.state?.nodeValues?.get(node.id) ?? false,
+          previewState.nodeValues?.get(node.id) ?? false,
           hasActiveIncoming(node.id, "a") || hasActiveIncoming(node.id),
           hasActiveIncoming(node.id, "b"),
           hasActiveOutgoing(node)
         );
       }
-      return renderPreviewSimpleNode(node, icDefMap, opts.state);
+      return renderPreviewSimpleNode(node, icDefMap, previewState);
     })
     .join("");
+
+  if (previewTooLarge) {
+    return `
+      <svg xmlns="http://www.w3.org/2000/svg"
+           width="${opts.width}" height="${opts.height}"
+           viewBox="${bounds.minX} ${bounds.minY} ${vbW} ${vbH}"
+           preserveAspectRatio="xMidYMid meet">
+        ${nodesSvg}
+        ${ledStackSvg}
+      </svg>
+    `.trim();
+  }
 
   return `
     <svg xmlns="http://www.w3.org/2000/svg"
@@ -3448,17 +3499,9 @@ function renderNode(node: NodeData) {
       const inCount = def?.inputNodeIds.length ?? 0;
       const outCount = def?.outputNodeIds.length ?? 0;
       const isCompactIc = icLayout.nodeWidth < 120;
-      const hasBlankPreview =
-        def?.builtinKind === "snake_status" || def?.builtinKind === "snake_column";
-      const previewGrowth =
-        def && !def.builtinKind
-          ? Math.min(56, Math.max(0, def.nodes.length - 3) * 4 + Math.max(0, def.wires.length - 2))
-          : 0;
-      const renderWidth = Math.min(220, Math.max(icLayout.nodeWidth, 120 + previewGrowth));
-      const renderBodyHeight = Math.min(
-        168,
-        Math.max(icLayout.bodyHeight, !def || def.builtinKind ? icLayout.bodyHeight : 74 + Math.min(54, def.nodes.length * 3))
-      );
+      const renderWidth = icLayout.nodeWidth;
+      const renderBodyHeight = icLayout.bodyHeight;
+      const useEmptyPreviewShell = shouldUseStaticIcPreview(def);
       el.style.width = `${renderWidth}px`;
       if (isCompactIc) {
         el.classList.add("node-ic-compact");
@@ -3469,7 +3512,7 @@ function renderNode(node: NodeData) {
           <div class="ic-chip-namebar">
             <span class="ic-chip-name">${escapeHtml(name)}</span>
           </div>
-          <div class="ic-preview-shell${isCompactIc ? " ic-preview-shell-compact" : ""}${hasBlankPreview ? " ic-preview-shell-empty" : ""}">
+          <div class="ic-preview-shell${isCompactIc ? " ic-preview-shell-compact" : ""}${useEmptyPreviewShell ? " ic-preview-shell-empty" : ""}">
             <div class="ic-preview-canvas"></div>
           </div>
         </div>
@@ -3513,6 +3556,7 @@ function renderNode(node: NodeData) {
       });
 
       workspace.appendChild(el);
+      scheduleFitRenderedNodeText(el);
       cacheNodeElement(node.id, el);
       makeDraggableAndSelectable(el, node);
       setupPorts(el, node);
@@ -3520,13 +3564,19 @@ function renderNode(node: NodeData) {
     } else {
       el = document.createElement("div");
       el.dataset.nodeId = String(node.id);
+      const renderHeaderBadge = (fallback = "") => {
+        const badgeText = node.badgeText ?? (node.titleText ? "" : fallback);
+        return badgeText
+          ? `<span class="node-port-label">${escapeHtml(badgeText)}</span>`
+          : "";
+      };
 
       if (node.type === "SWITCH") {
         el.className = "node node-switch";
         el.innerHTML = `
           <div class="node-header">
-            <span class="node-title">SWITCH</span>
-            <span class="node-port-label">Y</span>
+            <span class="node-title">${escapeHtml(node.titleText ?? "SWITCH")}</span>
+            ${renderHeaderBadge("Y")}
           </div>
           <div class="node-body">
             <div class="switch-shell"><div class="switch-knob"></div></div>
@@ -3537,8 +3587,8 @@ function renderNode(node: NodeData) {
         el.className = "node node-button";
         el.innerHTML = `
           <div class="node-header">
-            <span class="node-title">BUTTON</span>
-            <span class="node-port-label">Y</span>
+            <span class="node-title">${escapeHtml(node.titleText ?? "BUTTON")}</span>
+            ${renderHeaderBadge("Y")}
           </div>
           <div class="node-body">
             <div class="switch-shell"><div class="switch-knob"></div></div>
@@ -3574,8 +3624,8 @@ function renderNode(node: NodeData) {
         el.className = "node node-output";
         el.innerHTML = `
           <div class="node-header">
-            <span class="node-title">OUTPUT</span>
-            <span class="node-port-label">A</span>
+            <span class="node-title">${escapeHtml(node.titleText ?? "OUTPUT")}</span>
+            ${renderHeaderBadge("A")}
           </div>
           <div class="node-body">
             <div class="output-lamp"><div class="output-core"></div></div>
@@ -3586,7 +3636,8 @@ function renderNode(node: NodeData) {
         el.className = "node node-led";
         el.innerHTML = `
           <div class="node-header">
-            <span class="node-title">LED</span>
+            <span class="node-title">${escapeHtml(node.titleText ?? "LED")}</span>
+            ${renderHeaderBadge("")}
           </div>
           <div class="node-body">
             <div class="output-lamp"><div class="output-core"></div></div>
@@ -3646,6 +3697,10 @@ function renderNode(node: NodeData) {
         const screen = body.querySelector<HTMLDivElement>(".display-screen")!;
 
         body.style.height = `${layout.contentHeight + DISPLAY_BODY_PADDING_Y * 2}px`;
+        body.style.setProperty(
+          "--display-input-zone-width",
+          `${layout.inputGridWidth + DISPLAY_BODY_PADDING_X + DISPLAY_SECTION_GAP / 2}px`
+        );
 
         inputGrid.style.width = `${layout.inputGridWidth}px`;
         inputGrid.style.height = `${layout.inputGridHeight}px`;
@@ -3784,7 +3839,7 @@ function renderNode(node: NodeData) {
         el.style.width = `${geometry.width}px`;
         el.style.height = `${geometry.height}px`;
         el.innerHTML = `
-          <div class="node-body cable-body">
+          <div class="node-body cable-body${geometry.channels > 16 ? " is-dense" : ""}">
             <svg class="cable-lanes-svg" viewBox="0 0 ${geometry.width} ${geometry.height}" preserveAspectRatio="none" aria-hidden="true"></svg>
             <div class="cable-end-block cable-end-block-start" data-end="start"></div>
             <div class="cable-end-block cable-end-block-end" data-end="end"></div>
@@ -3810,8 +3865,8 @@ function renderNode(node: NodeData) {
           lane.setAttribute("x2", String(geometry.endLocalX));
           lane.setAttribute("y2", String(endY));
           lane.setAttribute("stroke", color);
-          lane.setAttribute("stroke-opacity", "0.5");
-          lane.setAttribute("stroke-width", "8");
+          lane.setAttribute("stroke-opacity", geometry.channels > 16 ? "0.18" : "0.5");
+          lane.setAttribute("stroke-width", geometry.channels > 16 ? "3" : "8");
           lane.setAttribute("stroke-linecap", "round");
           svg.appendChild(lane);
 
@@ -3874,6 +3929,24 @@ function renderNode(node: NodeData) {
             <div class="node-port node-port-output"></div>
           </div>
         `;
+      } else if (node.type === "DFF") {
+        el.className = "node node-dff";
+        el.innerHTML = `
+          <div class="node-header">
+            <span class="node-title">DFF</span>
+          </div>
+          <div class="node-body">
+            <div class="dff-chip">
+              <span class="dff-label dff-label-d">D</span>
+              <span class="dff-label dff-label-clk">CLK</span>
+              <span class="dff-label dff-label-q">Q</span>
+              <span class="dff-state">0</span>
+            </div>
+            <div class="node-port node-port-input node-port-input-d"></div>
+            <div class="node-port node-port-input node-port-input-clk"></div>
+            <div class="node-port node-port-output node-port-output-q"></div>
+          </div>
+        `;
       } else if (node.type === "BUFFER") {
         el.className = "node node-buffer";
         el.innerHTML = `
@@ -3928,7 +4001,19 @@ function renderNode(node: NodeData) {
 
       }
 
+      applyCustomNodeHeader(el, node);
+      if (
+        node.type !== "SPEAKER" &&
+        node.type !== "DISPLAY" &&
+        node.type !== "NUMBER_DISPLAY" &&
+        node.type !== "GUIDE" &&
+        node.type !== "CABLE"
+      ) {
+        el.style.width = `${getNodeLayoutSize(node).w}px`;
+      }
+
       workspace.appendChild(el);
+      scheduleFitRenderedNodeText(el);
       cacheNodeElement(node.id, el);
       makeDraggableAndSelectable(el, node);
       setupPorts(el, node);
@@ -3944,6 +4029,7 @@ function renderNode(node: NodeData) {
 
       if (node.type === "SWITCH") setupSwitch(el, node);
       if (node.type === "BUTTON") setupButton(el, node);
+      if (isRenameableNodeType(node.type)) setupRenameButton(el, node);
       if (node.type === "CLOCK" || node.type === "BUFFER") setupDelayButton(el, node);
       if (node.type === "OUTPUT" || node.type === "LED") applyLightColor(node);
     }
@@ -3979,7 +4065,11 @@ function makeDraggableAndSelectable(el: HTMLDivElement, node: NodeData) {
       }
     }
 
-    if (target.closest(".node-port") || target.closest(".switch-shell")) {
+    if (
+      target.closest(".node-port") ||
+      target.closest(".switch-shell") ||
+      target.closest(".node-action-button")
+    ) {
       return;
     }
     if (node.type === "CABLE") {
@@ -4109,6 +4199,9 @@ function setupPorts(el: HTMLDivElement, node: NodeData) {
       let suffix = String(index);
       if (port.classList.contains("node-port-input-a")) suffix = "a";
       else if (port.classList.contains("node-port-input-b")) suffix = "b";
+      else if (port.classList.contains("node-port-input-d")) suffix = "d";
+      else if (port.classList.contains("node-port-input-clk")) suffix = "clk";
+      else if (port.classList.contains("node-port-output-q")) suffix = "q";
       const role = isOutput ? "out" : "in";
       portId = `${node.id}:${role}:${suffix}`;
       port.dataset.portId = portId;
@@ -4603,6 +4696,7 @@ function findPortElementById(portId: string): HTMLDivElement | null {
 function renderAllWires(forceGeometry = false) {
   const shouldUpdateGeometry = forceGeometry || wireGeometryDirty;
   const liveWireIds = new Set<number>();
+  wireLayer.classList.toggle("wire-layer-heavy", wires.length > 260);
 
   wires.forEach((wire) => {
     let path = wirePathElements.get(wire.id);
@@ -4631,8 +4725,16 @@ function renderAllWires(forceGeometry = false) {
       }
     }
 
-    path.classList.toggle("wire-path-active", wire.isActive);
-    path.classList.toggle("wire-selected", selectedWireIds.has(wire.id));
+    const activeFlag = wire.isActive ? "1" : "0";
+    if (path.dataset.active !== activeFlag) {
+      path.dataset.active = activeFlag;
+      path.classList.toggle("wire-path-active", wire.isActive);
+    }
+    const selectedFlag = selectedWireIds.has(wire.id) ? "1" : "0";
+    if (path.dataset.selected !== selectedFlag) {
+      path.dataset.selected = selectedFlag;
+      path.classList.toggle("wire-selected", selectedWireIds.has(wire.id));
+    }
     liveWireIds.add(wire.id);
   });
 
@@ -4698,6 +4800,20 @@ function getComputedPortSignal(
   return nodeValues.get(node.id) ?? false;
 }
 
+function didBooleanMapChange(
+  previous: Map<string, boolean>,
+  next: Map<string, boolean>
+): boolean {
+  if (previous.size !== next.size) return true;
+  for (const [key, value] of next) {
+    if ((previous.get(key) ?? false) !== value) return true;
+  }
+  for (const [key, value] of previous) {
+    if ((next.get(key) ?? false) !== value) return true;
+  }
+  return false;
+}
+
 function getWorkspacePortSignal(node: NodeData, portId: string): boolean {
   if (node.type === "IC" || node.type === "GUIDE" || node.type === "CABLE") {
     return derivedPortValues.get(portId) ?? false;
@@ -4711,10 +4827,6 @@ function simulateIC(
   stack: number[] = [],
   runtimeKey?: string
 ): ICResult {
-  if (def.builtinKind === "snake_column" || def.builtinKind === "snake_status") {
-    return simulateBuiltinSnakeIc(def, inputVals);
-  }
-
   if (stack.includes(def.id) || stack.length > 8) {
     return {
       outputs: new Array(def.outputNodeIds.length).fill(false),
@@ -4730,16 +4842,28 @@ function simulateIC(
   if (runtime) {
     catchUpRuntimeClocks(runtime, performance.now());
   }
+  const simCache = getIcDefinitionSimulationCache(def);
+  const relevantNodeIds = simCache.relevantNodeIds;
+  const simWireEntries = simCache.wireEntries;
+  const simNodeIds = simCache.relevantNodeIdList;
+  const inputIndexByNodeId = simCache.inputIndexByNodeId;
+  const dffClockState = new Map<number, boolean>(
+    runtime ? Array.from(runtime.dffLastClockInput.entries()) : []
+  );
   const localVals = new Map<number, boolean>();
   const nodeMap = new Map<number, NodeData>();
-  (runtime ? Array.from(runtime.nodes.values()) : def.nodes).forEach((n) => {
-    nodeMap.set(n.id, n);
-    localVals.set(n.id, n.value ?? false);
+  simNodeIds.forEach((nodeId) => {
+    const node = runtime?.nodes.get(nodeId) ?? simCache.nodeById.get(nodeId);
+    if (!node) return;
+    nodeMap.set(nodeId, node);
+    localVals.set(nodeId, node.value ?? false);
   });
 
-  def.nodes.forEach((n) => {
+  simNodeIds.forEach((nodeId) => {
+    const n = simCache.nodeById.get(nodeId);
+    if (!n) return;
     if (n.type === "SWITCH") {
-      const idx = def.inputNodeIds.indexOf(n.id);
+      const idx = inputIndexByNodeId.get(n.id) ?? -1;
       if (idx >= 0) localVals.set(n.id, !!inputVals[idx]);
     } else if (n.type === "POWER") {
       localVals.set(n.id, true);
@@ -4749,8 +4873,10 @@ function simulateIC(
   let derivedOutputs = new Map<string, boolean>();
   let finalWireStates = new Array(def.wires.length).fill(false);
   let finalSpeakerStates: IcSpeakerState[] = [];
+  const nestedResultCache = new Map<string, ICResult>();
 
-  const MAX_STEPS = Math.max(16, def.nodes.length * 4 + def.wires.length * 2);
+  const simNodeCount = nodeMap.size;
+  const MAX_STEPS = Math.max(16, simNodeCount * 4 + simWireEntries.length * 2);
 
   for (let step = 0; step < MAX_STEPS; step++) {
     let changed = false;
@@ -4760,16 +4886,17 @@ function simulateIC(
     const guideInputs = new Map<number, boolean[]>();
     const cableInputs = new Map<number, { left: boolean[]; right: boolean[] }>();
     const speakerInputs = new Map<number, boolean[]>();
+    const incomingPortSignals = new Map<string, boolean>();
     const stepSpeakerStates: IcSpeakerState[] = [];
 
-    def.nodes.forEach((n) => {
+    nodeMap.forEach((n) => {
       incTrue.set(n.id, 0);
       incAny.set(n.id, false);
     });
 
     const nextWireStates = new Array(def.wires.length).fill(false);
 
-    def.wires.forEach((w, wireIndex) => {
+    simWireEntries.forEach(({ wire: w, index: wireIndex }) => {
       const fromNode = nodeMap.get(w.fromNodeId);
       if (!fromNode) return;
 
@@ -4781,6 +4908,7 @@ function simulateIC(
       );
       nextWireStates[wireIndex] = srcVal;
       if (!srcVal) return;
+      incomingPortSignals.set(w.toPortId, true);
 
       const curCount = incTrue.get(w.toNodeId) ?? 0;
       incTrue.set(w.toNodeId, curCount + 1);
@@ -4790,10 +4918,7 @@ function simulateIC(
       if (toNode?.type === "IC") {
         const [, role, suffix] = w.toPortId.split(":");
         if (role === "in") {
-          const nestedDef =
-            toNode.icDefId != null
-              ? icDefinitions.find((d) => d.id === toNode.icDefId)
-              : undefined;
+          const nestedDef = getIcDefinitionById(toNode.icDefId);
           if (!nestedDef) return;
           const idx = Number(suffix);
           if (idx < 0 || idx >= nestedDef.inputNodeIds.length) return;
@@ -4848,12 +4973,12 @@ function simulateIC(
     finalWireStates = nextWireStates;
     const nextDerivedOutputs = new Map<string, boolean>();
 
-    def.nodes.forEach((n) => {
+    nodeMap.forEach((n) => {
       let newVal = localVals.get(n.id) ?? false;
 
       switch (n.type) {
         case "SWITCH": {
-          const idx = def.inputNodeIds.indexOf(n.id);
+          const idx = inputIndexByNodeId.get(n.id) ?? -1;
           newVal =
             idx >= 0 ? !!inputVals[idx] : localVals.get(n.id) ?? false;
           break;
@@ -4865,6 +4990,18 @@ function simulateIC(
         }
         case "POWER": {
           newVal = true;
+          break;
+        }
+        case "DFF": {
+          const dInput = incomingPortSignals.get(`${n.id}:in:d`) ?? false;
+          const clkInput = incomingPortSignals.get(`${n.id}:in:clk`) ?? false;
+          const lastClock = dffClockState.get(n.id) ?? false;
+          if (clkInput && !lastClock) {
+            newVal = dInput;
+          } else {
+            newVal = localVals.get(n.id) ?? false;
+          }
+          dffClockState.set(n.id, clkInput);
           break;
         }
         case "OUTPUT":
@@ -4983,7 +5120,7 @@ function simulateIC(
           break;
         }
         case "IC": {
-          const nestedDef = icDefinitions.find((d) => d.id === n.icDefId);
+          const nestedDef = getIcDefinitionById(n.icDefId);
           if (!nestedDef) {
             newVal = false;
             break;
@@ -4991,12 +5128,20 @@ function simulateIC(
           const inputArr =
             icInputs.get(n.id) ??
             new Array(nestedDef.inputNodeIds.length).fill(false);
-          const result = simulateIC(
-            nestedDef,
-            inputArr,
-            [...stack, def.id],
-            runtimeKey ? `${runtimeKey}/ic:${n.id}` : undefined
-          );
+          const nestedRuntimeKey = runtimeKey ? `${runtimeKey}/ic:${n.id}` : undefined;
+          const cacheKey = `${nestedDef.id}:${nestedRuntimeKey ?? ""}:${inputArr
+            .map((value) => (value ? "1" : "0"))
+            .join("")}`;
+          let result = nestedResultCache.get(cacheKey);
+          if (!result) {
+            result = simulateIC(
+              nestedDef,
+              inputArr,
+              [...stack, def.id],
+              nestedRuntimeKey
+            );
+            nestedResultCache.set(cacheKey, result);
+          }
           result.outputs.forEach((v, idx) => {
             const portId = `${n.id}:out:${idx}`;
             nextDerivedOutputs.set(portId, v);
@@ -5013,17 +5158,23 @@ function simulateIC(
       }
     });
 
+    const portOutputsChanged = didBooleanMapChange(derivedOutputs, nextDerivedOutputs);
     derivedOutputs = nextDerivedOutputs;
     finalSpeakerStates = stepSpeakerStates;
+    if (!changed && portOutputsChanged) {
+      changed = true;
+    }
     if (!changed) break;
   }
 
   if (runtime) {
     runtime.nodes.forEach((runtimeNode, nodeId) => {
+      if (relevantNodeIds && !relevantNodeIds.has(nodeId)) return;
       runtimeNode.value = localVals.get(nodeId) ?? runtimeNode.value;
     });
     runtime.portOutputs = new Map(derivedOutputs);
     runtime.wireStates = finalWireStates.slice();
+    runtime.dffLastClockInput = new Map(dffClockState);
   }
 
   const outputs = def.outputNodeIds.map((id) => localVals.get(id) ?? false);
@@ -5047,6 +5198,7 @@ function recomputeSignals() {
       node.type !== "SWITCH" &&
       node.type !== "BUTTON" &&
       node.type !== "CLOCK" &&
+      node.type !== "DFF" &&
       node.type !== "BUFFER" &&
       node.type !== "POWER" &&
       node.type !== "KEY"
@@ -5059,6 +5211,7 @@ function recomputeSignals() {
   });
   derivedPortValues = new Map<string, boolean>();
   const activeIcRuntimeRoots = new Set<string>();
+  const nextDffClockState = new Map<number, boolean>(dffLastClockInput);
 
   const MAX_STEPS = Math.max(32, nodes.size * 4 + wires.length * 2);
 
@@ -5070,6 +5223,7 @@ function recomputeSignals() {
     const icInputs = new Map<number, boolean[]>();
     const guideInputs = new Map<number, boolean[]>();
     const cableInputs = new Map<number, { left: boolean[]; right: boolean[] }>();
+    const incomingPortSignals = new Map<string, boolean>();
 
     nodes.forEach((node) => {
       incomingTrueCount.set(node.id, 0);
@@ -5082,6 +5236,7 @@ function recomputeSignals() {
 
       const srcVal = getWorkspacePortSignal(from, wire.fromPortId);
       if (!srcVal) return;
+      incomingPortSignals.set(wire.toPortId, true);
 
       const toId = wire.toNodeId;
       incomingAnyTrue.set(toId, true);
@@ -5092,7 +5247,7 @@ function recomputeSignals() {
       if (toNode?.type === "IC") {
         const [, role, suffix] = wire.toPortId.split(":");
         if (role === "in") {
-          const def = icDefinitions.find((d) => d.id === toNode.icDefId);
+          const def = getIcDefinitionById(toNode.icDefId);
           if (!def) return;
           const idx = Number(suffix);
           if (idx < 0 || idx >= def.inputNodeIds.length) return;
@@ -5173,6 +5328,18 @@ function recomputeSignals() {
         case "POWER":
           newVal = true;
           break;
+        case "DFF": {
+          const dInput = incomingPortSignals.get(`${node.id}:in:d`) ?? false;
+          const clkInput = incomingPortSignals.get(`${node.id}:in:clk`) ?? false;
+          const lastClock = nextDffClockState.get(node.id) ?? false;
+          if (clkInput && !lastClock) {
+            newVal = dInput;
+          } else {
+            newVal = node.value;
+          }
+          nextDffClockState.set(node.id, clkInput);
+          break;
+        }
         case "OUTPUT":
         case "LED": {
           newVal = incomingAnyTrue.get(node.id) ?? false;
@@ -5237,7 +5404,7 @@ function recomputeSignals() {
           break;
         }
         case "IC": {
-          const def = icDefinitions.find((d) => d.id === node.icDefId);
+          const def = getIcDefinitionById(node.icDefId);
           if (!def) break;
           const inputArr =
             icInputs.get(node.id) ??
@@ -5261,10 +5428,22 @@ function recomputeSignals() {
       }
     });
 
+    const portOutputsChanged = didBooleanMapChange(derivedPortValues, nextDerivedPortValues);
     derivedPortValues = nextDerivedPortValues;
+
+    if (!changed && portOutputsChanged) {
+      changed = true;
+    }
 
     if (!changed) break;
   }
+
+  dffLastClockInput.clear();
+  nextDffClockState.forEach((value, nodeId) => {
+    if (nodes.has(nodeId)) {
+      dffLastClockInput.set(nodeId, value);
+    }
+  });
 
   wires.forEach((wire) => {
     const from = nodes.get(wire.fromNodeId);
@@ -5274,6 +5453,7 @@ function recomputeSignals() {
 
   updateOutputVisuals();
   updateLEDVisuals();
+  updateDffVisuals();
   updateSpeakerVisuals();
   updateDisplayVisuals();
   updateNumberDisplayVisuals();
@@ -5283,16 +5463,6 @@ function recomputeSignals() {
   updateGateVisuals();
   updateIcSpeakerVoices();
   pruneUnusedIcRuntimeTrees(activeIcRuntimeRoots);
-  const activeSnakeGameIds = new Set<string>();
-  nodes.forEach((node) => {
-    if (node.type !== "IC" || node.icDefId == null) return;
-    const def = icDefinitions.find((entry) => entry.id === node.icDefId);
-    if (!def?.snakeGameId) return;
-    if (def.builtinKind === "snake_column" || def.builtinKind === "snake_status") {
-      activeSnakeGameIds.add(def.snakeGameId);
-    }
-  });
-  pruneUnusedSnakeGameStates(activeSnakeGameIds);
   renderAllWires();
 }
 
@@ -5337,6 +5507,19 @@ function updateLEDVisuals() {
       core.style.backgroundColor = "transparent";
       core.style.boxShadow = "none";
     }
+  });
+}
+
+function updateDffVisuals() {
+  nodes.forEach((node) => {
+    if (node.type !== "DFF") return;
+    const el =
+      nodeElements.get(node.id) ??
+      workspace.querySelector<HTMLDivElement>(`[data-node-id="${node.id}"]`);
+    if (!el) return;
+    el.classList.toggle("is-on", !!node.value);
+    const stateEl = el.querySelector<HTMLSpanElement>(".dff-state");
+    if (stateEl) stateEl.textContent = node.value ? "1" : "0";
   });
 }
 
@@ -5480,7 +5663,11 @@ function updateDisplayVisuals() {
     el
       .querySelectorAll<HTMLDivElement>(".display-pixel")
       .forEach((pixelEl, index) => {
-        pixelEl.classList.toggle("is-on", activeInputs.has(getDisplayPortId(node.id, index)));
+        const isOn = activeInputs.has(getDisplayPortId(node.id, index));
+        const nextFlag = isOn ? "1" : "0";
+        if (pixelEl.dataset.on === nextFlag) return;
+        pixelEl.dataset.on = nextFlag;
+        pixelEl.classList.toggle("is-on", isOn);
       });
   });
 }
@@ -5608,13 +5795,15 @@ function renderIcPreviewInto(
   state?: IcPreviewRenderState,
   defs?: ICDefinition[]
 ) {
-  container.innerHTML = renderIcPreviewSvg({
-    def,
-    icDefinitions: defs,
-    width,
-    height,
-    state,
-  });
+  container.innerHTML = shouldUseStaticIcPreview(def)
+    ? renderStaticIcPreviewSummary(def, width, height)
+    : renderIcPreviewSvg({
+        def,
+        icDefinitions: defs,
+        width,
+        height,
+        state,
+      });
 }
 
 function renderPaletteIcIconInto(
@@ -5665,23 +5854,61 @@ function applyLightColor(node: NodeData) {
 function updateICLedVisuals() {
   nodes.forEach((node) => {
     if (node.type !== "IC") return;
-    const icEl = workspace.querySelector<HTMLDivElement>(
-      `[data-node-id="${node.id}"]`
-    );
+    const icEl =
+      nodeElements.get(node.id) ??
+      workspace.querySelector<HTMLDivElement>(`[data-node-id="${node.id}"]`);
     if (!icEl) return;
     icEl.classList.remove("is-active");
 
     const previewCanvas = icEl.querySelector<HTMLDivElement>(".ic-preview-canvas");
-    const def = node.icDefId != null ? icDefinitions.find((entry) => entry.id === node.icDefId) : undefined;
+    const def = getIcDefinitionById(node.icDefId);
     if (!previewCanvas || !def) return;
 
     const layout = getIcNodeLayout(def);
+    icEl.style.width = `${layout.nodeWidth}px`;
+    const body = icEl.querySelector<HTMLDivElement>(".ic-body");
+    if (body) {
+      body.style.height = `${layout.bodyHeight}px`;
+      body.classList.toggle("ic-body-compact", layout.nodeWidth < 120);
+      const inputPorts = Array.from(body.querySelectorAll<HTMLDivElement>(".ic-port-input"));
+      const outputPorts = Array.from(body.querySelectorAll<HTMLDivElement>(".ic-port-output"));
+      inputPorts.forEach((port, index) => {
+        const placement = getIcPortPlacement(def, "in", index);
+        port.style.left = `${placement.x}px`;
+        port.style.top = `${placement.y}px`;
+      });
+      outputPorts.forEach((port, index) => {
+        const placement = getIcPortPlacement(def, "out", index);
+        port.style.left = `${placement.x}px`;
+        port.style.top = `${placement.y}px`;
+      });
+    }
+    const titleEl = icEl.querySelector<HTMLElement>(".ic-chip-name");
+    if (titleEl) {
+      titleEl.textContent = displayNameForIcDefinition(def, node.icDefId);
+      scheduleFitRenderedNodeText(icEl);
+    }
+    const previewShell = icEl.querySelector<HTMLDivElement>(".ic-preview-shell");
+    if (previewShell) {
+      previewShell.classList.toggle("ic-preview-shell-empty", shouldUseStaticIcPreview(def));
+    }
     const result = workspaceIcResults.get(node.id);
+    const previewWidth = Math.max(92, layout.nodeWidth - 32);
+    const previewHeight = Math.max(56, layout.bodyHeight - 22);
+    const previewKey = shouldUseStaticIcPreview(def)
+      ? `static:${def.id}:${previewWidth}:${previewHeight}`
+      : `live:${def.id}:${previewWidth}:${previewHeight}:${
+          def.nodes.map((entry) => (result?.nodeValues?.get(entry.id) ? "1" : "0")).join("")
+        }:${(result?.wireStates ?? []).map((value) => (value ? "1" : "0")).join("")}:${
+          (result?.ledStates ?? []).map((value) => (value ? "1" : "0")).join("")
+        }`;
+    if (previewCanvas.dataset.previewKey === previewKey) return;
+    previewCanvas.dataset.previewKey = previewKey;
     renderIcPreviewInto(
       previewCanvas,
       def,
-      Math.max(92, layout.nodeWidth - 32),
-      Math.max(56, layout.bodyHeight - 22),
+      previewWidth,
+      previewHeight,
       result
         ? {
             nodeValues: result.nodeValues,
@@ -5908,6 +6135,7 @@ async function createICFromSelection() {
   };
 
   icDefinitions.push(def);
+  markIcDefinitionsDirty();
   addICPaletteButton(def);
 
   deleteSelection();
@@ -6212,6 +6440,148 @@ function setupDelayButton(el: HTMLDivElement, node: NodeData) {
   });
 }
 
+function fitTextToAvailableWidth(
+  textEl: HTMLElement,
+  options: { minFontSizePx?: number; minLetterSpacingEm?: number } = {}
+) {
+  const minFontSizePx = options.minFontSizePx ?? 7.5;
+  const minLetterSpacingEm = options.minLetterSpacingEm ?? 0.02;
+  textEl.style.fontSize = "";
+  textEl.style.letterSpacing = "";
+  textEl.classList.remove("node-title-compact", "node-title-tight");
+
+  const computed = window.getComputedStyle(textEl);
+  let fontSizePx = Number.parseFloat(computed.fontSize) || 10;
+  let letterSpacingPx = Number.parseFloat(computed.letterSpacing);
+  if (!Number.isFinite(letterSpacingPx)) {
+    letterSpacingPx = fontSizePx * 0.16;
+  }
+
+  let guard = 0;
+  while (textEl.scrollWidth > textEl.clientWidth && guard < 40) {
+    if (fontSizePx > minFontSizePx) {
+      fontSizePx -= 0.4;
+      textEl.style.fontSize = `${fontSizePx}px`;
+    } else if (letterSpacingPx > fontSizePx * minLetterSpacingEm) {
+      letterSpacingPx -= 0.15;
+      textEl.style.letterSpacing = `${Math.max(
+        fontSizePx * minLetterSpacingEm,
+        letterSpacingPx
+      )}px`;
+    } else {
+      break;
+    }
+    guard++;
+  }
+}
+
+function applyNodeTitleSizing(titleEl: HTMLElement, text: string) {
+  titleEl.title = text;
+}
+
+function applyCustomNodeHeader(el: HTMLDivElement, node: NodeData) {
+  const header = el.querySelector<HTMLDivElement>(".node-header");
+  if (!header) return;
+
+  const titleEl = header.querySelector<HTMLElement>(".node-title");
+  if (titleEl) {
+    const text = getVisibleNodeTitle(node);
+    titleEl.textContent = text;
+    applyNodeTitleSizing(titleEl, text);
+  }
+
+  let actionsEl = header.querySelector<HTMLDivElement>(".node-header-actions");
+  if (!actionsEl) {
+    actionsEl = document.createElement("div");
+    actionsEl.className = "node-header-actions";
+    Array.from(header.children).forEach((child) => {
+      if (child === titleEl) return;
+      actionsEl!.appendChild(child);
+    });
+    if (actionsEl.childElementCount > 0 || isRenameableNodeType(node.type)) {
+      header.appendChild(actionsEl);
+    }
+  }
+
+  const badgeEl = actionsEl?.querySelector<HTMLSpanElement>(".node-port-label");
+  if (badgeEl && node.badgeText != null) {
+    if (node.badgeText.trim()) {
+      badgeEl.textContent = node.badgeText;
+    } else {
+      badgeEl.remove();
+    }
+  }
+
+  if (isRenameableNodeType(node.type) && actionsEl) {
+    let renameButton = actionsEl.querySelector<HTMLButtonElement>(".node-rename-button");
+    if (!renameButton) {
+      renameButton = document.createElement("button");
+      renameButton.type = "button";
+      renameButton.className = "node-action-button node-rename-button";
+      renameButton.textContent = "Rename";
+      actionsEl.insertBefore(renameButton, actionsEl.firstChild);
+    }
+  }
+
+  if (actionsEl && actionsEl.childElementCount === 0) {
+    actionsEl.remove();
+  }
+}
+
+function fitRenderedNodeText(el: HTMLElement) {
+  const nodeTitle = el.querySelector<HTMLElement>(".node-title");
+  if (nodeTitle) {
+    fitTextToAvailableWidth(nodeTitle, { minFontSizePx: 7.25, minLetterSpacingEm: 0.01 });
+  }
+
+  const icName = el.querySelector<HTMLElement>(".ic-chip-name");
+  if (icName) {
+    fitTextToAvailableWidth(icName, { minFontSizePx: 7, minLetterSpacingEm: 0.01 });
+  }
+}
+
+function scheduleFitRenderedNodeText(el: HTMLElement) {
+  requestAnimationFrame(() => {
+    if (!el.isConnected) return;
+    fitRenderedNodeText(el);
+  });
+}
+
+async function renameNodeLabel(node: NodeData) {
+  if (!isRenameableNodeType(node.type)) return;
+
+  const nextLabel = await promptTextModal({
+    title: "Rename Node",
+    label: "Visible label",
+    value: node.titleText ?? getDefaultNodeTitle(node.type),
+    hint: "Leave blank to reset back to the default label.",
+    submitLabel: "Apply",
+  });
+  if (nextLabel == null) return;
+
+  const trimmed = nextLabel.trim();
+  const fallback = getDefaultNodeTitle(node.type);
+  node.titleText = trimmed && trimmed !== fallback ? trimmed : undefined;
+  rerenderNode(node);
+  markWorkspaceChanged();
+}
+
+function setupRenameButton(el: HTMLDivElement, node: NodeData) {
+  const button = el.querySelector<HTMLButtonElement>(".node-rename-button");
+  if (!button) return;
+
+  button.addEventListener("mousedown", (ev) => {
+    ev.stopPropagation();
+  });
+
+  button.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (previewMode) return;
+    void renameNodeLabel(node);
+  });
+}
+
 async function configureKeyForSelection() {
   const keys = Array.from(selectedNodeIds)
     .map((id) => nodes.get(id))
@@ -6359,6 +6729,8 @@ function pasteSelection() {
       );
     }
     newNode.value = n.value;
+    newNode.titleText = n.titleText;
+    newNode.badgeText = n.badgeText;
     newNode.lightColor = n.lightColor;
     newNode.clockDelayMs = n.clockDelayMs;
     newNode.bufferDelayMs = n.bufferDelayMs;
@@ -6446,6 +6818,232 @@ function pasteSelection() {
   updateSelectionStyles();
 }
 
+function remapPortIdToNode(portId: string, nodeId: number): string {
+  const [, role, suffix] = portId.split(":");
+  return `${nodeId}:${role}:${suffix}`;
+}
+
+function getNodeIcDefinition(node: NodeData | null | undefined): ICDefinition | undefined {
+  if (!node || node.type !== "IC" || node.icDefId == null) return undefined;
+  return icDefinitions.find((entry) => entry.id === node.icDefId);
+}
+
+function parseIcPortIndex(portId: string, role: "in" | "out"): number | null {
+  const [, parsedRole, suffix] = portId.split(":");
+  if (parsedRole !== role) return null;
+  const index = Number(suffix);
+  return Number.isFinite(index) && index >= 0 ? index : null;
+}
+
+function cloneNodeIntoWorkspaceFromIc(
+  source: NodeData,
+  offsetX: number,
+  offsetY: number
+): NodeData {
+  const clone: NodeData = {
+    ...source,
+    id: nextNodeId++,
+    x: snapCoord(source.x + offsetX),
+    y: snapCoord(source.y + offsetY),
+  };
+
+  if (clone.type === "CABLE") {
+    clone.cableStartX =
+      typeof source.cableStartX === "number"
+        ? snapCoord(source.cableStartX + offsetX)
+        : undefined;
+    clone.cableStartY =
+      typeof source.cableStartY === "number"
+        ? snapCoord(source.cableStartY + offsetY)
+        : undefined;
+    clone.cableEndX =
+      typeof source.cableEndX === "number"
+        ? snapCoord(source.cableEndX + offsetX)
+        : undefined;
+    clone.cableEndY =
+      typeof source.cableEndY === "number"
+        ? snapCoord(source.cableEndY + offsetY)
+        : undefined;
+    syncCableBounds(clone);
+  }
+
+  nodes.set(clone.id, clone);
+  renderNode(clone);
+  initializeNodeDynamicBehavior(clone);
+  return clone;
+}
+
+function ungroupIcNode(icNode: NodeData): number[] {
+  if (!icNode || icNode.type !== "IC" || icNode.icDefId == null) return [];
+
+  const def = getNodeIcDefinition(icNode);
+  if (!def) {
+    toast("This IC is missing its definition, so it can’t be ungrouped.");
+    return [];
+  }
+
+  const omittedNodeIds = new Set<number>([
+    ...def.inputNodeIds,
+    ...def.outputNodeIds,
+  ]);
+  const innerNodes = def.nodes.filter((node) => !omittedNodeIds.has(node.id));
+  if (innerNodes.length === 0) {
+    toast("This IC only contains input/output shells, so there’s nothing to ungroup.");
+    return [];
+  }
+
+  const minX = Math.min(...innerNodes.map((node) => node.x));
+  const minY = Math.min(...innerNodes.map((node) => node.y));
+  const offsetX = icNode.x + GRID_SIZE - minX;
+  const offsetY = icNode.y + GRID_SIZE - minY;
+
+  const externalIncoming = new Map<number, Wire[]>();
+  const externalOutgoing = new Map<number, Wire[]>();
+  wires.forEach((wire) => {
+    if (wire.toNodeId === icNode.id) {
+      const inputIndex = parseIcPortIndex(wire.toPortId, "in");
+      if (inputIndex != null) {
+        const arr = externalIncoming.get(inputIndex) ?? [];
+        arr.push({ ...wire });
+        externalIncoming.set(inputIndex, arr);
+      }
+    }
+    if (wire.fromNodeId === icNode.id) {
+      const outputIndex = parseIcPortIndex(wire.fromPortId, "out");
+      if (outputIndex != null) {
+        const arr = externalOutgoing.get(outputIndex) ?? [];
+        arr.push({ ...wire });
+        externalOutgoing.set(outputIndex, arr);
+      }
+    }
+  });
+
+  const idMap = new Map<number, number>();
+  const newNodeIds: number[] = [];
+  const addedWireKeys = new Set<string>();
+
+  const addWireIfMissing = (
+    fromNodeId: number,
+    fromPortId: string,
+    toNodeId: number,
+    toPortId: string
+  ) => {
+    const key = `${fromNodeId}|${fromPortId}|${toNodeId}|${toPortId}`;
+    if (addedWireKeys.has(key)) return;
+    addedWireKeys.add(key);
+    wires.push({
+      id: nextWireId++,
+      fromNodeId,
+      fromPortId,
+      toNodeId,
+      toPortId,
+      isActive: false,
+    });
+  };
+
+  innerNodes.forEach((node) => {
+    const clone = cloneNodeIntoWorkspaceFromIc(node, offsetX, offsetY);
+    idMap.set(node.id, clone.id);
+    newNodeIds.push(clone.id);
+  });
+
+  for (let i = wires.length - 1; i >= 0; i--) {
+    const wire = wires[i];
+    if (wire.fromNodeId !== icNode.id && wire.toNodeId !== icNode.id) continue;
+    selectedWireIds.delete(wire.id);
+    wires.splice(i, 1);
+  }
+
+  teardownNodeDynamicBehavior(icNode.id);
+  nodes.delete(icNode.id);
+  const icEl =
+    nodeElements.get(icNode.id) ??
+    workspace.querySelector<HTMLDivElement>(`[data-node-id="${icNode.id}"]`);
+  uncacheNodeElement(icNode.id);
+  icEl?.remove();
+
+  def.wires.forEach((wireDef) => {
+    const fromMappedId = idMap.get(wireDef.fromNodeId);
+    const toMappedId = idMap.get(wireDef.toNodeId);
+    const fromInputIndex = def.inputNodeIds.indexOf(wireDef.fromNodeId);
+    const toOutputIndex = def.outputNodeIds.indexOf(wireDef.toNodeId);
+
+    if (fromMappedId != null && toMappedId != null) {
+      addWireIfMissing(
+        fromMappedId,
+        remapPortIdToNode(wireDef.fromPortId, fromMappedId),
+        toMappedId,
+        remapPortIdToNode(wireDef.toPortId, toMappedId)
+      );
+      return;
+    }
+
+    if (fromInputIndex >= 0 && toMappedId != null) {
+      const incoming = externalIncoming.get(fromInputIndex) ?? [];
+      incoming.forEach((externalWire) => {
+        addWireIfMissing(
+          externalWire.fromNodeId,
+          externalWire.fromPortId,
+          toMappedId,
+          remapPortIdToNode(wireDef.toPortId, toMappedId)
+        );
+      });
+      return;
+    }
+
+    if (fromMappedId != null && toOutputIndex >= 0) {
+      const outgoing = externalOutgoing.get(toOutputIndex) ?? [];
+      outgoing.forEach((externalWire) => {
+        addWireIfMissing(
+          fromMappedId,
+          remapPortIdToNode(wireDef.fromPortId, fromMappedId),
+          externalWire.toNodeId,
+          externalWire.toPortId
+        );
+      });
+      return;
+    }
+
+    if (fromInputIndex >= 0 && toOutputIndex >= 0) {
+      const incoming = externalIncoming.get(fromInputIndex) ?? [];
+      const outgoing = externalOutgoing.get(toOutputIndex) ?? [];
+      incoming.forEach((externalIn) => {
+        outgoing.forEach((externalOut) => {
+          addWireIfMissing(
+            externalIn.fromNodeId,
+            externalIn.fromPortId,
+            externalOut.toNodeId,
+            externalOut.toPortId
+          );
+        });
+      });
+    }
+  });
+
+  return newNodeIds;
+}
+
+function ungroupSelectedIcs() {
+  const selectedIcs = Array.from(selectedNodeIds)
+    .map((id) => nodes.get(id))
+    .filter((node): node is NodeData => !!node && node.type === "IC");
+  if (selectedIcs.length === 0) return;
+
+  const newNodeIds: number[] = [];
+  withDeferredWireRendering(() => {
+    selectedIcs.forEach((icNode) => {
+      newNodeIds.push(...ungroupIcNode(icNode));
+    });
+  });
+
+  clearSelection();
+  newNodeIds.forEach((nodeId) => selectedNodeIds.add(nodeId));
+  updateSelectionStyles();
+  markWireGeometryDirty();
+  recomputeSignals();
+  markWorkspaceChanged();
+}
+
 function showContextMenu(
   x: number,
   y: number,
@@ -6503,6 +7101,12 @@ function showContextMenu(
     return n && n.type === "CABLE";
   });
 
+  const selectedIcCount = Array.from(selectedNodeIds).reduce((count, id) => {
+    const node = nodes.get(id);
+    return count + (node?.type === "IC" ? 1 : 0);
+  }, 0);
+  const canUngroupIc = selectedIcCount > 0;
+
   function addItem(label: string, handler: () => void, disabled?: boolean) {
     if (disabled) return;
     const item = document.createElement("button");
@@ -6519,6 +7123,11 @@ function showContextMenu(
     addItem("Copy", () => copySelection(), !hasNode);
     addItem("Paste", () => pasteSelection(), !canPaste);
     addItem("Create IC", () => void createICFromSelection(), !hasNode);
+    addItem(
+      selectedIcCount > 1 ? "Ungroup ICs" : "Ungroup IC",
+      () => ungroupSelectedIcs(),
+      !canUngroupIc
+    );
     addItem(
       "Set LED Color…",
       () => setLightColorForSelection(),
@@ -6767,6 +7376,7 @@ function enterICEdit(defId: number) {
 
   def.nodes.forEach((n) => {
     const clone: NodeData = { ...n };
+    resetNodeValueForDefinition(clone);
     nodes.set(clone.id, clone);
   });
   def.wires.forEach((w) => {
@@ -6800,7 +7410,11 @@ function exitICEdit() {
     return;
   }
 
-  const editedNodes = Array.from(nodes.values()).map((n) => ({ ...n }));
+  const editedNodes = Array.from(nodes.values()).map((n) => {
+    const clone = { ...n };
+    resetNodeValueForDefinition(clone);
+    return clone;
+  });
   if (editedNodes.length > 0) {
     const minX = Math.min(...editedNodes.map((n) => n.x));
     const minY = Math.min(...editedNodes.map((n) => n.y));
@@ -6830,6 +7444,7 @@ function exitICEdit() {
     .filter((n) => n.type === "LED")
     .sort((a, b) => a.y - b.y)
     .map((n) => n.id);
+  markIcDefinitionsDirty();
 
   refreshICPalette(def);
   resetAllIcRuntimeState();
@@ -7684,6 +8299,8 @@ function getDefaultPortId(
       case "KEY":
       case "CLOCK":
         return `${node.id}:out:0`;
+      case "DFF":
+        return `${node.id}:out:q`;
       case "BUFFER":
       case "NOT":
         return `${node.id}:out:1`;
@@ -7702,6 +8319,8 @@ function getDefaultPortId(
     case "OUTPUT":
     case "LED":
       return `${node.id}:in:0`;
+    case "DFF":
+      return `${node.id}:in:${slot}`;
     case "BUFFER":
     case "NOT":
       return `${node.id}:in:0`;
@@ -7729,6 +8348,7 @@ function makePresetNode(id: number, type: NodeType, x: number, y: number): NodeD
   if (type === "OUTPUT" || type === "LED") node.lightColor = DEFAULT_LIGHT_COLOR;
   if (type === "POWER") node.value = true;
   if (type === "CLOCK") node.clockDelayMs = 100;
+  if (type === "DFF") node.value = false;
   if (type === "BUFFER") node.bufferDelayMs = 100;
   if (type === "KEY") {
     node.keyChar = "a";
@@ -7815,270 +8435,509 @@ function buildHalfAdderDefinition(): ICDefinition {
   };
 }
 
-function buildSnakeStatusDefinition(
-  id: number,
-  gameId: string,
-  gridWidth: number,
-  gridHeight: number,
-  tickMs: number
-): ICDefinition {
-  const inputW = makePresetNode(1, "SWITCH", 24, 28);
-  const inputA = makePresetNode(2, "SWITCH", 24, 64);
-  const inputS = makePresetNode(3, "SWITCH", 24, 100);
-  const inputD = makePresetNode(4, "SWITCH", 24, 136);
-  const horizontal = makePresetNode(5, "OR", 156, 52);
-  const vertical = makePresetNode(6, "OR", 156, 120);
-  const pulse = makePresetNode(7, "CLOCK", 156, 190);
-  pulse.clockDelayMs = tickMs;
-  const board = makePresetNode(8, "DISPLAY", 292, 38);
-  board.displayWidth = 6;
-  board.displayHeight = 4;
-  const food = makePresetNode(9, "OUTPUT", 892, 58);
-  const crash = makePresetNode(10, "OUTPUT", 892, 118);
-  food.lightColor = "#22c55e";
-  crash.lightColor = "#ef4444";
-  const columnBuffers = Array.from({ length: gridWidth }, (_, columnIndex) => {
-    const node = makePresetNode(11 + columnIndex, "BUFFER", 500 + (columnIndex % 6) * 58, 34 + Math.floor(columnIndex / 6) * 42);
-    node.bufferDelayMs = 80;
-    return node;
-  });
-  const columnOutputs = Array.from({ length: gridWidth }, (_, columnIndex) =>
-    makePresetNode(11 + gridWidth + columnIndex, "OUTPUT", 892, 182 + columnIndex * 22)
-  );
-  const nodes = [
-    inputW,
-    inputA,
-    inputS,
-    inputD,
-    horizontal,
-    vertical,
-    pulse,
-    board,
-    food,
-    crash,
-    ...columnBuffers,
-    ...columnOutputs,
-  ];
+type LogicSignal = {
+  nodeId: number;
+  portId: string;
+};
 
-  const wires: ICDefinition["wires"] = [
-    {
-      fromNodeId: inputA.id,
-      toNodeId: horizontal.id,
-      fromPortId: getDefaultPortId(inputA, "output"),
-      toPortId: getDefaultPortId(horizontal, "input", "a"),
-    },
-    {
-      fromNodeId: inputD.id,
-      toNodeId: horizontal.id,
-      fromPortId: getDefaultPortId(inputD, "output"),
-      toPortId: getDefaultPortId(horizontal, "input", "b"),
-    },
-    {
-      fromNodeId: inputW.id,
-      toNodeId: vertical.id,
-      fromPortId: getDefaultPortId(inputW, "output"),
-      toPortId: getDefaultPortId(vertical, "input", "a"),
-    },
-    {
-      fromNodeId: inputS.id,
-      toNodeId: vertical.id,
-      fromPortId: getDefaultPortId(inputS, "output"),
-      toPortId: getDefaultPortId(vertical, "input", "b"),
-    },
-    {
-      fromNodeId: horizontal.id,
-      toNodeId: board.id,
-      fromPortId: getDefaultPortId(horizontal, "output"),
-      toPortId: getDefaultPortId(board, "input", 2),
-    },
-    {
-      fromNodeId: horizontal.id,
-      toNodeId: board.id,
-      fromPortId: getDefaultPortId(horizontal, "output"),
-      toPortId: getDefaultPortId(board, "input", 3),
-    },
-    {
-      fromNodeId: vertical.id,
-      toNodeId: board.id,
-      fromPortId: getDefaultPortId(vertical, "output"),
-      toPortId: getDefaultPortId(board, "input", 8),
-    },
-    {
-      fromNodeId: vertical.id,
-      toNodeId: board.id,
-      fromPortId: getDefaultPortId(vertical, "output"),
-      toPortId: getDefaultPortId(board, "input", 14),
-    },
-    {
-      fromNodeId: pulse.id,
-      toNodeId: board.id,
-      fromPortId: getDefaultPortId(pulse, "output"),
-      toPortId: getDefaultPortId(board, "input", 10),
-    },
-    {
-      fromNodeId: pulse.id,
-      toNodeId: food.id,
-      fromPortId: getDefaultPortId(pulse, "output"),
-      toPortId: getDefaultPortId(food, "input"),
-    },
-    {
-      fromNodeId: vertical.id,
-      toNodeId: crash.id,
-      fromPortId: getDefaultPortId(vertical, "output"),
-      toPortId: getDefaultPortId(crash, "input"),
-    },
-  ];
+interface LogicBuilder {
+  nextId: number;
+  nodes: NodeData[];
+  wires: ICDefinition["wires"];
+  trueSignal?: LogicSignal;
+  falseSignal?: LogicSignal;
+}
 
-  columnBuffers.forEach((bufferNode, columnIndex) => {
-    const sourceNode =
-      columnIndex % 3 === 0 ? pulse : columnIndex % 2 === 0 ? horizontal : vertical;
-    wires.push({
-      fromNodeId: sourceNode.id,
-      toNodeId: bufferNode.id,
-      fromPortId: getDefaultPortId(sourceNode, "output"),
-      toPortId: getDefaultPortId(bufferNode, "input"),
-    });
-    const outputNode = columnOutputs[columnIndex]!;
-    wires.push({
-      fromNodeId: bufferNode.id,
-      toNodeId: outputNode.id,
-      fromPortId: getDefaultPortId(bufferNode, "output"),
-      toPortId: getDefaultPortId(outputNode, "input"),
-    });
-  });
-
+function createLogicBuilder(startId = 1): LogicBuilder {
   return {
-    id,
-    name: "SNAKE GAME",
-    nodes,
-    wires,
-    inputNodeIds: [inputW.id, inputA.id, inputS.id, inputD.id],
-    outputNodeIds: [food.id, crash.id, ...columnOutputs.map((node) => node.id)],
-    ledNodeIds: [],
-    paletteHidden: true,
-    compactLayout: {
-      bodyHeight: 720,
-      nodeWidth: 236,
-      portPitch: 24,
-    },
-    builtinKind: "snake_status",
-    snakeGameId: gameId,
-    snakeGridWidth: gridWidth,
-    snakeGridHeight: gridHeight,
-    snakeCellScale: 1,
-    snakeTickMs: tickMs,
+    nextId: startId,
+    nodes: [],
+    wires: [],
   };
 }
 
-function buildSnakeColumnDefinition(
-  id: number,
-  gameId: string,
-  columnIndex: number,
-  gridWidth: number,
-  gridHeight: number,
-  tickMs: number
-): ICDefinition {
-  const input = makePresetNode(1, "SWITCH", 24, 124);
-  const spine = makePresetNode(2, "BUFFER", 132, 124);
-  spine.bufferDelayMs = 60;
-  const screen = makePresetNode(3, "DISPLAY", 210, 34);
-  screen.displayWidth = 2;
-  screen.displayHeight = 8;
-  const rowBuffers = Array.from({ length: gridHeight }, (_, rowIndex) => {
-    const node = makePresetNode(4 + rowIndex, "BUFFER", 372, 22 + rowIndex * 15);
-    node.bufferDelayMs = 40;
-    return node;
+function addLogicNode(
+  builder: LogicBuilder,
+  type: NodeType,
+  x: number,
+  y: number,
+  patch: Partial<NodeData> = {}
+): NodeData {
+  const node = {
+    ...makePresetNode(builder.nextId++, type, x, y),
+    ...patch,
+  };
+  builder.nodes.push(node);
+  return node;
+}
+
+function signalFromNode(
+  node: Pick<NodeData, "id" | "type">,
+  slot: "a" | "b" | number = 0
+): LogicSignal {
+  return {
+    nodeId: node.id,
+    portId: getDefaultPortId(node, "output", slot),
+  };
+}
+
+function signalFromPort(nodeId: number, portId: string): LogicSignal {
+  return { nodeId, portId };
+}
+
+function connectSignalToNode(
+  builder: LogicBuilder,
+  signal: LogicSignal,
+  node: Pick<NodeData, "id" | "type">,
+  slot: "a" | "b" | number = 0
+) {
+  builder.wires.push({
+    fromNodeId: signal.nodeId,
+    toNodeId: node.id,
+    fromPortId: signal.portId,
+    toPortId: getDefaultPortId(node, "input", slot),
   });
-  const outputs = Array.from({ length: gridHeight }, (_, rowIndex) =>
-    makePresetNode(4 + gridHeight + rowIndex, "OUTPUT", 548, 22 + rowIndex * 15)
+}
+
+function connectSignalToPort(
+  builder: LogicBuilder,
+  signal: LogicSignal,
+  toNodeId: number,
+  toPortId: string
+) {
+  builder.wires.push({
+    fromNodeId: signal.nodeId,
+    toNodeId,
+    fromPortId: signal.portId,
+    toPortId,
+  });
+}
+
+function ensureTrueSignal(builder: LogicBuilder): LogicSignal {
+  if (!builder.trueSignal) {
+    const power = addLogicNode(builder, "POWER", 24, 24);
+    builder.trueSignal = signalFromNode(power);
+  }
+  return builder.trueSignal;
+}
+
+function ensureFalseSignal(builder: LogicBuilder): LogicSignal {
+  if (!builder.falseSignal) {
+    const alwaysOff = addLogicNode(builder, "NOT", 96, 24);
+    connectSignalToNode(builder, ensureTrueSignal(builder), alwaysOff);
+    builder.falseSignal = signalFromNode(alwaysOff);
+  }
+  return builder.falseSignal;
+}
+
+function addNotGate(
+  builder: LogicBuilder,
+  input: LogicSignal,
+  x: number,
+  y: number
+): LogicSignal {
+  const gate = addLogicNode(builder, "NOT", x, y);
+  connectSignalToNode(builder, input, gate);
+  return signalFromNode(gate);
+}
+
+function addBinaryGate(
+  builder: LogicBuilder,
+  type: "AND" | "OR" | "XOR" | "NAND" | "NOR",
+  a: LogicSignal,
+  b: LogicSignal,
+  x: number,
+  y: number
+): LogicSignal {
+  const gate = addLogicNode(builder, type, x, y);
+  connectSignalToNode(builder, a, gate, "a");
+  connectSignalToNode(builder, b, gate, "b");
+  return signalFromNode(gate);
+}
+
+function addAndMany(
+  builder: LogicBuilder,
+  inputs: LogicSignal[],
+  x: number,
+  y: number
+): LogicSignal {
+  if (inputs.length === 0) return ensureTrueSignal(builder);
+  if (inputs.length === 1) return inputs[0];
+
+  let current = inputs[0];
+  for (let index = 1; index < inputs.length; index++) {
+    current = addBinaryGate(builder, "AND", current, inputs[index], x + (index - 1) * 72, y);
+  }
+  return current;
+}
+
+function addOrMany(
+  builder: LogicBuilder,
+  inputs: LogicSignal[],
+  x: number,
+  y: number
+): LogicSignal {
+  if (inputs.length === 0) return ensureFalseSignal(builder);
+  if (inputs.length === 1) return inputs[0];
+
+  let current = inputs[0];
+  for (let index = 1; index < inputs.length; index++) {
+    current = addBinaryGate(builder, "OR", current, inputs[index], x + (index - 1) * 72, y);
+  }
+  return current;
+}
+
+function addPrioritySelection(
+  builder: LogicBuilder,
+  categories: LogicSignal[][],
+  order: readonly number[],
+  x: number,
+  y: number
+): LogicSignal[] {
+  const falseSignal = ensureFalseSignal(builder);
+  const selected = Array<LogicSignal | null>(categories[0]?.length ?? 0).fill(null);
+  let blocked: LogicSignal = falseSignal;
+  let row = 0;
+
+  categories.forEach((category, categoryIndex) => {
+    order.forEach((moveIndex) => {
+      const notBlocked = addNotGate(builder, blocked, x + categoryIndex * 252, y + row * 24);
+      row++;
+      const picked = addBinaryGate(
+        builder,
+        "AND",
+        category[moveIndex] ?? falseSignal,
+        notBlocked,
+        x + categoryIndex * 252 + 84,
+        y + row * 24
+      );
+      row++;
+      selected[moveIndex] =
+        selected[moveIndex] == null
+          ? picked
+          : addBinaryGate(
+              builder,
+              "OR",
+              selected[moveIndex]!,
+              picked,
+              x + categoryIndex * 252 + 168,
+              y + row * 24
+            );
+      row++;
+      blocked = addBinaryGate(
+        builder,
+        "OR",
+        blocked,
+        category[moveIndex] ?? falseSignal,
+        x + categoryIndex * 252 + 252,
+        y + row * 24
+      );
+      row++;
+    });
+  });
+
+  return selected.map((signal) => signal ?? falseSignal);
+}
+
+function connectDff(
+  builder: LogicBuilder,
+  dffNode: Pick<NodeData, "id">,
+  dSignal: LogicSignal,
+  clockSignal: LogicSignal
+) {
+  connectSignalToPort(builder, dSignal, dffNode.id, `${dffNode.id}:in:d`);
+  connectSignalToPort(builder, clockSignal, dffNode.id, `${dffNode.id}:in:clk`);
+}
+
+function buildTicTacToeWinCheckDefinition(id: number): ICDefinition {
+  const builder = createLogicBuilder();
+  const inputs = Array.from({ length: TIC_TAC_TOE_BOARD_SIZE ** 2 }, (_, index) =>
+    addLogicNode(builder, "SWITCH", 24, 48 + index * 72)
+  );
+  const output = addLogicNode(builder, "OUTPUT", 780, 312);
+  const inputSignals = inputs.map((node) => signalFromNode(node));
+  const lineSignals = TIC_TAC_TOE_WINNING_LINES.map(([a, b, c], lineIndex) =>
+    addAndMany(builder, [inputSignals[a], inputSignals[b], inputSignals[c]], 180, 72 + lineIndex * 72)
+  );
+  const anyWin = addOrMany(builder, lineSignals, 468, 312);
+  connectSignalToNode(builder, anyWin, output);
+
+  return {
+    id,
+    name: "TTT WIN CHECK",
+    nodes: builder.nodes,
+    wires: builder.wires,
+    inputNodeIds: inputs.map((node) => node.id),
+    outputNodeIds: [output.id],
+    ledNodeIds: [],
+    paletteHidden: false,
+    compactLayout: {
+      nodeWidth: 212,
+      bodyHeight: 240,
+      portPitch: 14,
+    },
+  };
+}
+
+function buildTicTacToeAiDefinition(id: number): ICDefinition {
+  const builder = createLogicBuilder();
+  const xInputs = Array.from({ length: TIC_TAC_TOE_BOARD_SIZE ** 2 }, (_, index) =>
+    addLogicNode(builder, "SWITCH", 24, 48 + index * 72)
+  );
+  const oInputs = Array.from({ length: TIC_TAC_TOE_BOARD_SIZE ** 2 }, (_, index) =>
+    addLogicNode(builder, "SWITCH", 96, 48 + index * 72)
+  );
+  const outputs = Array.from({ length: TIC_TAC_TOE_BOARD_SIZE ** 2 }, (_, index) =>
+    addLogicNode(builder, "OUTPUT", 1524, 48 + index * 72)
   );
 
-  const wires: ICDefinition["wires"] = [
-    {
-      fromNodeId: input.id,
-      toNodeId: spine.id,
-      fromPortId: getDefaultPortId(input, "output"),
-      toPortId: getDefaultPortId(spine, "input"),
-    },
-  ];
+  const xSignals = xInputs.map((node) => signalFromNode(node));
+  const oSignals = oInputs.map((node) => signalFromNode(node));
+  let row = 0;
+  const nextY = () => 48 + row++ * 24;
 
-  rowBuffers.forEach((rowBuffer, rowIndex) => {
-    wires.push({
-      fromNodeId: spine.id,
-      toNodeId: rowBuffer.id,
-      fromPortId: getDefaultPortId(spine, "output"),
-      toPortId: getDefaultPortId(rowBuffer, "input"),
-    });
-    wires.push({
-      fromNodeId: rowBuffer.id,
-      toNodeId: outputs[rowIndex]!.id,
-      fromPortId: getDefaultPortId(rowBuffer, "output"),
-      toPortId: getDefaultPortId(outputs[rowIndex]!, "input"),
+  const notX = xSignals.map((signal) => addNotGate(builder, signal, 204, nextY()));
+  const notO = oSignals.map((signal) => addNotGate(builder, signal, 288, nextY()));
+  const empty = xSignals.map((_, index) =>
+    addBinaryGate(builder, "AND", notX[index], notO[index], 372, nextY())
+  );
+
+  const buildWinningMoves = (playerSignals: LogicSignal[], baseX: number) =>
+    Array.from({ length: TIC_TAC_TOE_BOARD_SIZE ** 2 }, (_, cellIndex) => {
+      const lineMatches = TIC_TAC_TOE_LINES_BY_CELL[cellIndex].map(([a, b]) =>
+        addBinaryGate(builder, "AND", playerSignals[a], playerSignals[b], baseX, nextY())
+      );
+      const anyLine = addOrMany(builder, lineMatches, baseX + 84, nextY());
+      return addBinaryGate(builder, "AND", empty[cellIndex], anyLine, baseX + 168, nextY());
     });
 
-    const displayIndex = rowIndex < 8 ? rowIndex * 2 : (rowIndex - 8) * 2 + 1;
-    wires.push({
-      fromNodeId: rowBuffer.id,
-      toNodeId: screen.id,
-      fromPortId: getDefaultPortId(rowBuffer, "output"),
-      toPortId: getDefaultPortId(screen, "input", displayIndex),
-    });
+  const winningMoves = buildWinningMoves(oSignals, 516);
+  const blockingMoves = buildWinningMoves(xSignals, 816);
+  const pickedMoves = addPrioritySelection(
+    builder,
+    [winningMoves, blockingMoves, empty],
+    TIC_TAC_TOE_MOVE_PRIORITY,
+    1128,
+    48
+  );
+
+  pickedMoves.forEach((signal, index) => {
+    connectSignalToNode(builder, signal, outputs[index]);
   });
 
   return {
     id,
-    name: `SNAKE COL ${columnIndex + 1}`,
-    nodes: [input, spine, screen, ...rowBuffers, ...outputs],
-    wires,
-    inputNodeIds: [input.id],
+    name: "TTT SIMPLE AI",
+    nodes: builder.nodes,
+    wires: builder.wires,
+    inputNodeIds: [...xInputs.map((node) => node.id), ...oInputs.map((node) => node.id)],
     outputNodeIds: outputs.map((node) => node.id),
     ledNodeIds: [],
-    paletteHidden: true,
+    paletteHidden: false,
     compactLayout: {
-      bodyHeight: 248,
-      nodeWidth: 104,
-      portPitch: 10,
+      nodeWidth: 224,
+      bodyHeight: 288,
+      portPitch: 12,
     },
-    builtinKind: "snake_column",
-    snakeGameId: gameId,
-    snakeColumnIndex: columnIndex,
-    snakeGridWidth: gridWidth,
-    snakeGridHeight: gridHeight,
-    snakeCellScale: 1,
-    snakeTickMs: tickMs,
+  };
+}
+
+function buildTicTacToeGameDefinition(
+  id: number,
+  aiDefId: number,
+  winCheckDefId: number
+): ICDefinition {
+  const builder = createLogicBuilder();
+  const moveInputs = Array.from({ length: TIC_TAC_TOE_BOARD_SIZE ** 2 }, (_, index) =>
+    addLogicNode(builder, "SWITCH", 24, 48 + index * 72)
+  );
+  const resetInput = addLogicNode(builder, "SWITCH", 24, 768);
+  const outputs = Array.from({ length: 23 }, (_, index) =>
+    addLogicNode(builder, "OUTPUT", 2748, 48 + index * 72)
+  );
+  const xStateDffs = Array.from({ length: TIC_TAC_TOE_BOARD_SIZE ** 2 }, (_, index) =>
+    addLogicNode(builder, "DFF", 372, 48 + index * 96)
+  );
+  const oStateDffs = Array.from({ length: TIC_TAC_TOE_BOARD_SIZE ** 2 }, (_, index) =>
+    addLogicNode(builder, "DFF", 564, 48 + index * 96)
+  );
+  const phaseDff = addLogicNode(builder, "DFF", 756, 420);
+  const aiNode = addLogicNode(builder, "IC", 1104, 252, { icDefId: aiDefId });
+  const xWinNode = addLogicNode(builder, "IC", 1368, 108, { icDefId: winCheckDefId });
+  const oWinNode = addLogicNode(builder, "IC", 1368, 396, { icDefId: winCheckDefId });
+  const pressBuffer1 = addLogicNode(builder, "BUFFER", 828, 720, {
+    bufferDelayMs: 120,
+  });
+  const pressBuffer2 = addLogicNode(builder, "BUFFER", 996, 720, {
+    bufferDelayMs: 120,
+  });
+  const pressBuffer3 = addLogicNode(builder, "BUFFER", 1164, 720, {
+    bufferDelayMs: 120,
+  });
+  const clockGuideA = addLogicNode(builder, "GUIDE", 2148, 132, {
+    guideLength: 16,
+  });
+  const clockGuideB = addLogicNode(builder, "GUIDE", 2208, 132, {
+    guideLength: 4,
+  });
+
+  const moveSignals = moveInputs.map((node) => signalFromNode(node));
+  const resetSignal = signalFromNode(resetInput);
+  const xState = xStateDffs.map((node) => signalFromNode(node));
+  const oState = oStateDffs.map((node) => signalFromNode(node));
+  const phaseSignal = signalFromNode(phaseDff);
+  let row = 0;
+  const nextY = () => 48 + row++ * 24;
+
+  const playerPress = addOrMany(builder, moveSignals, 804, nextY());
+  connectSignalToNode(builder, playerPress, pressBuffer1);
+  connectSignalToNode(builder, signalFromNode(pressBuffer1), pressBuffer2);
+  connectSignalToNode(builder, signalFromNode(pressBuffer2), pressBuffer3);
+  const pressBuffer1Signal = signalFromNode(pressBuffer1);
+  const pressBuffer2Signal = signalFromNode(pressBuffer2);
+  const pressBuffer3Signal = signalFromNode(pressBuffer3);
+  const notPressBuffer1 = addNotGate(builder, pressBuffer1Signal, 900, nextY());
+  const humanPulse = addAndMany(builder, [playerPress, notPressBuffer1], 996, nextY());
+  const notPressBuffer3 = addNotGate(builder, pressBuffer3Signal, 1092, nextY());
+  const aiPulse = addAndMany(builder, [pressBuffer2Signal, notPressBuffer3], 1188, nextY());
+  const clockPulse = addOrMany(builder, [humanPulse, aiPulse, resetSignal], 1284, nextY());
+  connectSignalToPort(builder, clockPulse, clockGuideA.id, getGuideInputPortId(clockGuideA.id, 0));
+  connectSignalToPort(builder, clockPulse, clockGuideB.id, getGuideInputPortId(clockGuideB.id, 0));
+  const clockSignals = [
+    ...Array.from({ length: 16 }, (_, index) =>
+      signalFromPort(clockGuideA.id, getGuideOutputPortId(clockGuideA.id, index))
+    ),
+    ...Array.from({ length: 4 }, (_, index) =>
+      signalFromPort(clockGuideB.id, getGuideOutputPortId(clockGuideB.id, index))
+    ),
+  ];
+
+  const notReset = addNotGate(builder, resetSignal, 1380, nextY());
+
+  const notPhase = addNotGate(builder, phaseSignal, 1476, nextY());
+  const notX = xState.map((signal) => addNotGate(builder, signal, 1476, nextY()));
+  const notO = oState.map((signal) => addNotGate(builder, signal, 1560, nextY()));
+  const empty = xState.map((_, index) =>
+    addBinaryGate(builder, "AND", notX[index], notO[index], 1644, nextY())
+  );
+
+  xState.forEach((signal, index) => {
+    connectSignalToNode(builder, signal, aiNode, index);
+    connectSignalToNode(builder, signal, xWinNode, index);
+  });
+  oState.forEach((signal, index) => {
+    connectSignalToNode(builder, signal, aiNode, TIC_TAC_TOE_BOARD_SIZE ** 2 + index);
+    connectSignalToNode(builder, signal, oWinNode, index);
+  });
+
+  const xWin = signalFromNode(xWinNode);
+  const oWin = signalFromNode(oWinNode);
+  const occupied = xState.map((signal, index) =>
+    addOrMany(builder, [signal, oState[index]], 1740, nextY())
+  );
+  const boardFull = addAndMany(builder, occupied, 1836, nextY());
+  const anyWin = addOrMany(builder, [xWin, oWin], 1932, nextY());
+  const notAnyWin = addNotGate(builder, anyWin, 2028, nextY());
+  const draw = addBinaryGate(builder, "AND", boardFull, notAnyWin, 2124, nextY());
+  const gameOver = addOrMany(builder, [anyWin, draw], 2220, nextY());
+  const notGameOver = addNotGate(builder, gameOver, 2316, nextY());
+  const humanTurn = addAndMany(builder, [notPhase, notGameOver], 2412, nextY());
+  const aiTurn = addAndMany(builder, [phaseSignal, notGameOver], 2508, nextY());
+
+  const legalHumanMoves = moveSignals.map((signal, index) =>
+    addBinaryGate(builder, "AND", signal, empty[index], 1260, nextY())
+  );
+  const humanChoice = addPrioritySelection(
+    builder,
+    [legalHumanMoves],
+    Array.from({ length: TIC_TAC_TOE_BOARD_SIZE ** 2 }, (_, index) => index),
+    1380,
+    48
+  );
+  const humanEnable = addAndMany(builder, [humanTurn, humanPulse, notReset], 1500, nextY());
+  const humanApplied = humanChoice.map((signal) =>
+    addBinaryGate(builder, "AND", signal, humanEnable, 1596, nextY())
+  );
+  const humanAppliedAny = addOrMany(builder, humanApplied, 1692, nextY());
+
+  const aiCandidates = Array.from({ length: TIC_TAC_TOE_BOARD_SIZE ** 2 }, (_, index) =>
+    addBinaryGate(builder, "AND", signalFromNode(aiNode, index), empty[index], 1788, nextY())
+  );
+  const aiEnable = addAndMany(builder, [aiTurn, aiPulse, notReset], 1884, nextY());
+  const aiApplied = aiCandidates.map((signal) =>
+    addBinaryGate(builder, "AND", signal, aiEnable, 1980, nextY())
+  );
+  const aiAppliedAny = addOrMany(builder, aiApplied, 2076, nextY());
+
+  const phaseClear = addOrMany(builder, [resetSignal, aiAppliedAny], 2172, nextY());
+  const notPhaseClear = addNotGate(builder, phaseClear, 2268, nextY());
+  const heldPhase = addAndMany(builder, [phaseSignal, notPhaseClear], 2364, nextY());
+  const nextPhase = addOrMany(builder, [humanAppliedAny, heldPhase], 2460, nextY());
+
+  xStateDffs.forEach((dffNode, index) => {
+    const held = addOrMany(builder, [xState[index], humanApplied[index]], 2172, nextY());
+    const nextState = addBinaryGate(builder, "AND", held, notReset, 2268, nextY());
+    connectDff(builder, dffNode, nextState, clockSignals[index]);
+  });
+
+  oStateDffs.forEach((dffNode, index) => {
+    const held = addOrMany(builder, [oState[index], aiApplied[index]], 2364, nextY());
+    const nextState = addBinaryGate(builder, "AND", held, notReset, 2460, nextY());
+    connectDff(builder, dffNode, nextState, clockSignals[9 + index]);
+  });
+
+  connectDff(builder, phaseDff, nextPhase, clockSignals[18]);
+
+  xState.forEach((signal, index) => {
+    connectSignalToNode(builder, signal, outputs[index]);
+  });
+  oState.forEach((signal, index) => {
+    connectSignalToNode(builder, signal, outputs[TIC_TAC_TOE_BOARD_SIZE ** 2 + index]);
+  });
+  connectSignalToNode(builder, humanTurn, outputs[18]);
+  connectSignalToNode(builder, aiTurn, outputs[19]);
+  connectSignalToNode(builder, xWin, outputs[20]);
+  connectSignalToNode(builder, oWin, outputs[21]);
+  connectSignalToNode(builder, draw, outputs[22]);
+
+  return {
+    id,
+    name: "TIC TAC TOE",
+    nodes: builder.nodes,
+    wires: builder.wires,
+    inputNodeIds: [...moveInputs.map((node) => node.id), resetInput.id],
+    outputNodeIds: outputs.map((node) => node.id),
+    ledNodeIds: [],
+    paletteHidden: false,
+    compactLayout: {
+      nodeWidth: 248,
+      bodyHeight: 360,
+      portPitch: 12,
+    },
   };
 }
 
 function buildTutorialSaveObject(): SaveFileV1 {
   const tutorialDef = buildHalfAdderDefinition();
-  const snakeGameId = "tutorial-snake-game";
-  const snakeGridWidth = 24;
-  const snakeGridHeight = 16;
-  const snakeTickMs = 220;
-  const snakeStatusDef = buildSnakeStatusDefinition(
-    2,
-    snakeGameId,
-    snakeGridWidth,
-    snakeGridHeight,
-    snakeTickMs
+  const ticTacToeWinCheckDef = buildTicTacToeWinCheckDefinition(tutorialDef.id + 1);
+  const ticTacToeAiDef = buildTicTacToeAiDefinition(ticTacToeWinCheckDef.id + 1);
+  const ticTacToeGameDef = buildTicTacToeGameDefinition(
+    ticTacToeAiDef.id + 1,
+    ticTacToeAiDef.id,
+    ticTacToeWinCheckDef.id
   );
-  const snakeColumnDefs = Array.from({ length: snakeGridWidth }, (_, columnIndex) =>
-    buildSnakeColumnDefinition(
-      3 + columnIndex,
-      snakeGameId,
-      columnIndex,
-      snakeGridWidth,
-      snakeGridHeight,
-      snakeTickMs
-    )
-  );
-  const tutorialDefs: ICDefinition[] = [tutorialDef, snakeStatusDef, ...snakeColumnDefs];
+  const tutorialDefs: ICDefinition[] = [
+    tutorialDef,
+    ticTacToeWinCheckDef,
+    ticTacToeAiDef,
+    ticTacToeGameDef,
+  ];
   const tutorialNodes: NodeData[] = [];
   const tutorialNotes: NoteData[] = [];
   const tutorialWires: SaveFileV1["wires"] = [];
   let tutorialNextNodeId = 1;
   let tutorialNextNoteId = 1;
-  let tutorialNextDefId = tutorialDefs.reduce((maxId, def) => Math.max(maxId, def.id), 0) + 1;
+  let tutorialNextDefId = ticTacToeGameDef.id + 1;
 
   const addNode = (type: NodeType, x: number, y: number, patch: Partial<NodeData> = {}) => {
     const node = { ...makePresetNode(tutorialNextNodeId++, type, x, y), ...patch };
@@ -8344,90 +9203,131 @@ function buildTutorialSaveObject(): SaveFileV1 {
   );
 
   const gameY = 4320;
-  const snakeDisplay = addNode("DISPLAY", 1836, gameY + 132, {
-    displayWidth: snakeGridWidth,
-    displayHeight: snakeGridHeight,
+  const moveButtonOriginX = 744;
+  const moveButtonOriginY = gameY + 120;
+  const moveSwitchSpacing = 120;
+  const moveButtonLabels = ["NW", "N", "NE", "W", "C", "E", "SW", "S", "SE"] as const;
+  const moveButtons = Array.from({ length: TIC_TAC_TOE_BOARD_SIZE ** 2 }, (_, index) => {
+    const col = index % TIC_TAC_TOE_BOARD_SIZE;
+    const row = Math.floor(index / TIC_TAC_TOE_BOARD_SIZE);
+    return addNode(
+      "BUTTON",
+      moveButtonOriginX + col * moveSwitchSpacing,
+      moveButtonOriginY + row * moveSwitchSpacing,
+      {
+        titleText: `MOVE ${moveButtonLabels[index]}`,
+      }
+    );
   });
-
-  const snakeKeyW = addNode("KEY", 744, gameY + 52, {
-    keyChar: "w",
-    keyMode: "hold",
+  const resetButton = addNode("BUTTON", 864, gameY + 552, {
+    titleText: "RESET",
   });
-  const snakeKeyA = addNode("KEY", 744, gameY + 164, {
-    keyChar: "a",
-    keyMode: "hold",
+  const ticTacToeGame = addNode("IC", 1176, gameY + 96, {
+    icDefId: ticTacToeGameDef.id,
   });
-  const snakeKeyS = addNode("KEY", 744, gameY + 276, {
-    keyChar: "s",
-    keyMode: "hold",
+  const ticTacToeDisplayWidth = 11;
+  const ticTacToeDisplay = addNode("DISPLAY", 1488, gameY + 48, {
+    displayWidth: ticTacToeDisplayWidth,
+    displayHeight: ticTacToeDisplayWidth,
   });
-  const snakeKeyD = addNode("KEY", 744, gameY + 388, {
-    keyChar: "d",
-    keyMode: "hold",
+  const statusLampX = 1896;
+  const yourTurnLamp = addNode("OUTPUT", statusLampX, gameY + 72, {
+    titleText: "YOUR TURN",
+    lightColor: "#0ea5e9",
   });
-
-  const snakeStatus = addNode("IC", 1016, gameY + 132, {
-    icDefId: snakeStatusDef.id,
+  const aiTurnLamp = addNode("OUTPUT", statusLampX, gameY + 168, {
+    titleText: "AI TURN",
+    lightColor: "#6366f1",
   });
-  connect(snakeKeyW, snakeStatus, 0);
-  connect(snakeKeyA, snakeStatus, 1);
-  connect(snakeKeyS, snakeStatus, 2);
-  connect(snakeKeyD, snakeStatus, 3);
-
-  const snakeFoodSpeaker = addNode("SPEAKER", 1320, gameY + 116, {
-    speakerFrequencyHz: 220,
-  });
-  const snakeFoodLamp = addNode("OUTPUT", 1536, gameY + 116, {
+  const xWinLamp = addNode("OUTPUT", statusLampX, gameY + 288, {
+    titleText: "X WIN",
     lightColor: "#22c55e",
   });
-  connect(snakeStatus, snakeFoodSpeaker, 1, 0);
-  connect(snakeStatus, snakeFoodSpeaker, 2, 0);
-  connect(snakeStatus, snakeFoodLamp, 0, 0);
-
-  const snakeCrashSpeaker = addNode("SPEAKER", 1320, gameY + 296, {
-    speakerFrequencyHz: 220,
-  });
-  const snakeCrashLamp = addNode("OUTPUT", 1536, gameY + 296, {
+  const aiWinLamp = addNode("OUTPUT", statusLampX, gameY + 384, {
+    titleText: "O WIN",
     lightColor: "#ef4444",
   });
-  connect(snakeStatus, snakeCrashSpeaker, 0, 1);
-  connect(snakeStatus, snakeCrashSpeaker, 3, 1);
-  connect(snakeStatus, snakeCrashLamp, 0, 1);
-
-  const columnDriverLayout = getIcNodeLayout(snakeColumnDefs[0]);
-  const driverCols = 6;
-  const driverGapX = 18;
-  const driverGapY = 26;
-  const driverStartX = snakeDisplay.x + 28;
-  const driverStartY = gameY + 616;
-
-  snakeColumnDefs.forEach((def, columnIndex) => {
-    const driverRow = Math.floor(columnIndex / driverCols);
-    const driverCol = columnIndex % driverCols;
-    const driverNode = addNode(
-      "IC",
-      driverStartX + driverCol * (columnDriverLayout.nodeWidth + driverGapX),
-      driverStartY + driverRow * (columnDriverLayout.bodyHeight + driverGapY),
-      { icDefId: def.id }
-    );
-    connect(snakeStatus, driverNode, 0, 2 + columnIndex);
-
-    for (let row = 0; row < snakeGridHeight; row++) {
-      connectDisplayPixel(driverNode, snakeDisplay, snakeGridWidth, columnIndex, row, row);
-    }
+  const drawLamp = addNode("OUTPUT", statusLampX, gameY + 480, {
+    titleText: "DRAW",
+    lightColor: "#f59e0b",
   });
+
+  moveButtons.forEach((moveButton, index) => {
+    connect(moveButton, ticTacToeGame, index);
+  });
+  connect(resetButton, ticTacToeGame, 9);
+
+  const xPattern = [
+    [0, 0],
+    [1, 1],
+    [2, 2],
+    [2, 0],
+    [0, 2],
+  ] as const;
+  const oPattern = [
+    [0, 0],
+    [1, 0],
+    [2, 0],
+    [0, 1],
+    [2, 1],
+    [0, 2],
+    [1, 2],
+    [2, 2],
+  ] as const;
+
+  Array.from({ length: TIC_TAC_TOE_BOARD_SIZE ** 2 }, (_, index) => {
+    const col = index % TIC_TAC_TOE_BOARD_SIZE;
+    const row = Math.floor(index / TIC_TAC_TOE_BOARD_SIZE);
+    const baseX = col * 4;
+    const baseY = row * 4;
+
+    xPattern.forEach(([dx, dy]) => {
+      connectDisplayPixel(
+        ticTacToeGame,
+        ticTacToeDisplay,
+        ticTacToeDisplayWidth,
+        baseX + dx,
+        baseY + dy,
+        index
+      );
+    });
+    oPattern.forEach(([dx, dy]) => {
+      connectDisplayPixel(
+        ticTacToeGame,
+        ticTacToeDisplay,
+        ticTacToeDisplayWidth,
+        baseX + dx,
+        baseY + dy,
+        TIC_TAC_TOE_BOARD_SIZE ** 2 + index
+      );
+    });
+  });
+
+  connect(ticTacToeGame, yourTurnLamp, 0, 18);
+  connect(ticTacToeGame, aiTurnLamp, 0, 19);
+  connect(ticTacToeGame, xWinLamp, 0, 20);
+  connect(ticTacToeGame, aiWinLamp, 0, 21);
+  connect(ticTacToeGame, drawLamp, 0, 22);
 
   addNote(
     noteX,
     4212,
-    "Snake\n\nThis one is a real snake game.\n\nControls:\n- Hold W to go up\n- Hold A to go left\n- Hold S to go down\n- Hold D to go right\n\nHow it works:\n- The SNAKE GAME IC keeps the shared game state.\n- Its extra outputs fan out into the named SNAKE COL driver ICs.\n- The display is a full 24x16 grid and every screen input is explicitly wired.\n- Green pulse = food eaten. Red pulse = crash, then the game resets.",
-    556,
-    310
+    "Logic-gate tic-tac-toe\n\nThis last section is a real circuit, not a scripted widget.\n\nControls:\n- The 9 MOVE buttons are the only player inputs.\n- Press one button to place X in that square.\n- The AI answers automatically after a short buffer delay.\n- Press RESET to clear the board.\n\nOpen these ICs from the left custom-IC column:\n- TIC TAC TOE: board memory + turn timing, with guides fanning the shared clock pulse.\n- TTT WIN CHECK: rows / columns / diagonals.\n- TTT SIMPLE AI: win if possible, block if needed, otherwise pick a decent empty square.\n\nThe AI is intentionally beatable now, so this stays teachable instead of feeling magical.",
+    552,
+    356
+  );
+
+  addNote(
+    684,
+    gameY + 888,
+    "Reading the section\n\nLeft to right:\n1. MOVE buttons choose the square.\n2. TIC TAC TOE stores the board in DFFs and sequences the turn.\n3. The display shows X and O directly from the circuit outputs.\n4. The lamps tell you whose turn it is and how the game ended.",
+    460,
+    230
   );
 
   addNote(
     noteX,
-    5988,
+    5568,
     "Tips\n\nRight-click nodes to open the custom control panels.\nUse the middle mouse button to pan.\nRight-click blank space to create your own note.\nUse Delete or Backspace to remove selected notes, wires, or gates.\n\nScroll back up and experiment with any section.",
     430,
     220
@@ -8543,9 +9443,11 @@ function loadFromObject(obj: any) {
   nodes.clear();
   wires.length = 0;
   icDefinitions.length = 0;
+  markIcDefinitionsDirty();
   notes.clear();
   clockTimers.clear();
   clockLastTickAt.clear();
+  dffLastClockInput.clear();
   bufferLastInput.clear();
   bufferTimeouts.clear();
   resetAllIcRuntimeState();
@@ -8566,18 +9468,11 @@ function loadFromObject(obj: any) {
       ledNodeIds: d.ledNodeIds.slice(),
       paletteHidden: !!d.paletteHidden,
       compactLayout: d.compactLayout ? { ...d.compactLayout } : undefined,
-      builtinKind: d.builtinKind,
-      snakeGameId: d.snakeGameId,
-      snakeRowIndex: d.snakeRowIndex,
-      snakeColumnIndex: d.snakeColumnIndex,
-      snakeGridWidth: d.snakeGridWidth,
-      snakeGridHeight: d.snakeGridHeight,
-      snakeCellScale: d.snakeCellScale,
-      snakeTickMs: d.snakeTickMs,
     };
     icDefinitions.push(def);
     addICPaletteButton(def);
   });
+  markIcDefinitionsDirty();
   updateCustomIcPaletteSectionVisibility();
 
   // nodes
@@ -8634,6 +9529,7 @@ function resetWorkspaceHard() {
   nodes.forEach((n) => teardownNodeDynamicBehavior(n.id));
   clockTimers.clear();
   clockLastTickAt.clear();
+  dffLastClockInput.clear();
   bufferLastInput.clear();
   bufferTimeouts.clear();
   resetAllIcRuntimeState();
@@ -8652,6 +9548,7 @@ function resetWorkspaceHard() {
 
   // wipe ALL custom ICs from left column + definitions
   icDefinitions.length = 0;
+  markIcDefinitionsDirty();
   palette.querySelectorAll<HTMLDivElement>(".palette-item-ic").forEach((el) => el.remove());
   updateCustomIcPaletteSectionVisibility();
 
@@ -8724,6 +9621,7 @@ interface ServerCircuitSummary {
   title: string;
   visibility: "private" | "preview" | "open";
   ownerId: number;
+  isBuiltin?: boolean;
 }
 
 interface ServerCircuit extends ServerCircuitSummary {
@@ -8742,12 +9640,16 @@ let currentCircuitTitle = "Untitled";
 let currentCircuitVisibility: "private" | "preview" | "open" = "private";
 const TEMP_WORKSPACE_AUTOSAVE_DELAY_MS = 12000;
 const TEMP_WORKSPACE_AUTOSAVE_INTERVAL_MS = 45000;
+const WORKSPACE_DRAFT_CHANGE_THRESHOLD = 30;
+const WORKSPACE_CHANGE_COUNT_COOLDOWN_MS = 180;
 let draftAutosaveTimeoutId: number | null = null;
 let draftAutosaveInFlight = false;
 let queuedDraftAutosave = false;
 let lastDraftAutosaveKey = "";
 let workspaceDraftPromptShown = false;
 let startupContentReady: Promise<void> = Promise.resolve();
+let workspaceChangeCount = 0;
+let lastWorkspaceChangeCountAt = 0;
 
 const APP_BASE = (import.meta as any).env?.BASE_URL ?? "/";
 const API_BASE =
@@ -8910,6 +9812,21 @@ function portPosForPreview(
     return {
       x: node.x + placement.x,
       y: node.y + DISPLAY_HEADER_HEIGHT + placement.y,
+    };
+  } else if (node.type === "DFF") {
+    if (role === "in") {
+      const y =
+        suffix === "clk" ? node.y + h * 0.72 :
+        suffix === "d" ? node.y + h * 0.34 :
+        node.y + h * 0.5;
+      return {
+        x: node.x - 7,
+        y,
+      };
+    }
+    return {
+      x: node.x + w + 7,
+      y: node.y + h * 0.5,
     };
   } else if (node.type === "POWER" && role === "out") {
     return {
@@ -9884,6 +10801,22 @@ const accountRefreshCircuitsBtn =
 const accountCircuitListEl =
   accountOverlay.querySelector<HTMLDivElement>(".account-circuit-list")!;
 
+function setAccountAvatarPicture(picture: string | null | undefined) {
+  if (!accountAvatarImg) return;
+  const trimmed = typeof picture === "string" ? picture.trim() : "";
+  if (!trimmed) {
+    accountAvatarImg.style.display = "none";
+    accountAvatarImg.removeAttribute("src");
+    return;
+  }
+  accountAvatarImg.onerror = () => {
+    accountAvatarImg.style.display = "none";
+    accountAvatarImg.removeAttribute("src");
+  };
+  accountAvatarImg.style.display = "";
+  accountAvatarImg.src = trimmed;
+}
+
 // --- Overlay helpers ---
 function showOverlay(el: HTMLElement) {
   el.classList.remove("hidden");
@@ -9904,11 +10837,11 @@ navCommunityBtn.addEventListener("click", () => {
   void refreshCommunity();
 });
 
-navAccountBtn.addEventListener("click", () => {
+navAccountBtn.addEventListener("click", async () => {
   hideOverlay(communityOverlay);
   showOverlay(accountOverlay);
-  void refreshMe();
-  void refreshMyCircuits();
+  await refreshMe();
+  await refreshMyCircuits();
 });
 
 communityCloseBtn.addEventListener("click", (ev) => {
@@ -10097,17 +11030,11 @@ function applyAccountUI() {
     authSection.style.display = "";
     accountNicknameSpan.textContent = currentUser.nickname;
     accountUsernameSpan.textContent = currentUser.username;
-
-    const pic = (currentUser as any).picture;
-    if (pic && accountAvatarImg) {
-      accountAvatarImg.src = pic;
-      accountAvatarImg.style.display = "";
-    } else if (accountAvatarImg) {
-      accountAvatarImg.style.display = "none";
-    }
+    setAccountAvatarPicture((currentUser as any).picture);
   } else {
     unauthSection.style.display = "";
     authSection.style.display = "none";
+    setAccountAvatarPicture(null);
     // ensure the Google button exists
     void initGoogleSignInIfNeeded();
   }
@@ -10402,7 +11329,9 @@ async function refreshCommunity() {
       `;
 
       (card.querySelector(".card-title") as HTMLDivElement).textContent = c.title;
-      (card.querySelector(".card-meta") as HTMLDivElement).textContent = `User #${c.ownerId}`;
+      (card.querySelector(".card-meta") as HTMLDivElement).textContent = c.isBuiltin
+        ? "Logic-gate example"
+        : `User #${c.ownerId}`;
 
       const openBtn = card.querySelector<HTMLButtonElement>(".card-btn.primary")!;
       openBtn.addEventListener("click", () => {
@@ -10487,6 +11416,7 @@ interface ToolboxEntrySummary {
   name: string;
   ownerId: number;
   createdAt: number;
+  isBuiltin?: boolean;
 }
 
 interface ToolboxEntry extends ToolboxEntrySummary {
@@ -10611,8 +11541,9 @@ async function refreshToolbox() {
       `;
 
       (card.querySelector(".card-title") as HTMLDivElement).textContent = entry.name;
-      (card.querySelector(".card-meta") as HTMLDivElement).textContent =
-        `User #${entry.ownerId} · ${created.toLocaleString()}`;
+      (card.querySelector(".card-meta") as HTMLDivElement).textContent = entry.isBuiltin
+        ? `Logic-gate module · ${created.toLocaleDateString()}`
+        : `User #${entry.ownerId} · ${created.toLocaleString()}`;
 
       const importBtn = card.querySelector<HTMLButtonElement>(".card-btn.primary")!;
       importBtn.addEventListener("click", () => {
@@ -10988,18 +11919,11 @@ function importIcFromToolbox(entry: ToolboxEntry) {
       ledNodeIds: [...oldDef.ledNodeIds],
       paletteHidden: !!oldDef.paletteHidden,
       compactLayout: oldDef.compactLayout ? { ...oldDef.compactLayout } : undefined,
-      builtinKind: oldDef.builtinKind,
-      snakeGameId: oldDef.snakeGameId,
-      snakeRowIndex: oldDef.snakeRowIndex,
-      snakeColumnIndex: oldDef.snakeColumnIndex,
-      snakeGridWidth: oldDef.snakeGridWidth,
-      snakeGridHeight: oldDef.snakeGridHeight,
-      snakeCellScale: oldDef.snakeCellScale,
-      snakeTickMs: oldDef.snakeTickMs,
     };
   });
 
   newDefs.forEach((d) => icDefinitions.push(d));
+  markIcDefinitionsDirty();
 
   const rootNewId = idMap.get(icNode.icDefId!);
   const rootDef = newDefs.find((d) => d.id === rootNewId);

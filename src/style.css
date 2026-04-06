@@ -174,7 +174,7 @@ body {
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: 6;
+  z-index: 1;
 }
 
 .wire-path {
@@ -194,6 +194,12 @@ body {
 
 .wire-path-active {
   stroke: var(--wire-active);
+  stroke-dasharray: 12 8;
+  animation: wire-dash 0.65s linear infinite;
+  will-change: stroke-dashoffset;
+}
+
+.wire-layer-heavy .wire-path-active {
   stroke-dasharray: 12 8;
   animation: wire-dash 0.65s linear infinite;
   will-change: stroke-dashoffset;
@@ -225,14 +231,52 @@ body {
   border: 2px solid var(--node-border);
   user-select: none;
   cursor: grab;
-  z-index: 2;
+  z-index: 3;
   transform-origin: center center;
+}
+
+.node-display {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.node-display .node-header {
+  margin: 0;
+  padding: 4px 8px 0;
+  border: 2px solid var(--node-border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: var(--node-bg);
+}
+
+.node-display .node-body {
+  position: relative;
+  border: 2px solid var(--node-border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0 calc(var(--display-input-zone-width, 140px) + 12px),
+      var(--node-bg) calc(var(--display-input-zone-width, 140px) + 12px),
+      var(--node-bg) 100%
+    );
+}
+
+.node-display .display-input-grid {
+  z-index: 1;
+}
+
+.node-display .display-screen {
+  z-index: 2;
 }
 
 .node-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 6px;
   padding: 4px 8px 0;
   font-size: 0.66rem;
   font-weight: 600;
@@ -241,15 +285,45 @@ body {
     "Liberation Mono", "Courier New", monospace;
 }
 
+.node-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.node-title.node-title-compact {
+  font-size: 0.6rem;
+  letter-spacing: 0.11em;
+}
+
+.node-title.node-title-tight {
+  font-size: 0.54rem;
+  letter-spacing: 0.06em;
+}
+
+.node-port-label {
+  flex: 0 0 auto;
+}
+
+.node-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
 .node-action-button {
   border: 1px solid #cbd5e1;
   border-radius: 999px;
   background: #f8fafc;
   color: #0f172a;
-  padding: 2px 7px;
-  font: 600 10px/1 var(--font);
+  padding: 2px 6px;
+  font: 600 9px/1 var(--font);
   letter-spacing: 0.04em;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .node-action-button:hover {
@@ -259,6 +333,10 @@ body {
 .node-action-button:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: 1px;
+}
+
+.cirkit-app.is-previewing .node-action-button {
+  display: none;
 }
 
 .node-body {
@@ -1016,6 +1094,96 @@ body {
   border-bottom: 4px solid transparent;
 }
 
+/* --- DFF icon --- */
+.node-dff {
+  width: 124px;
+}
+
+.node-dff .node-body {
+  min-height: 56px;
+}
+
+.dff-chip,
+.palette-dff-icon {
+  position: relative;
+  width: 60px;
+  height: 40px;
+  border-radius: 8px;
+  border: 2px solid #111827;
+  background:
+    linear-gradient(180deg, rgba(255, 247, 237, 0.9), rgba(248, 250, 252, 0.95));
+}
+
+.node-dff .dff-chip {
+  margin: 0 auto;
+}
+
+.dff-label,
+.palette-dff-label {
+  position: absolute;
+  font: 700 7.5px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  letter-spacing: 0.06em;
+  color: #475569;
+}
+
+.dff-label-d,
+.palette-dff-label-d {
+  left: 8px;
+  top: 9px;
+}
+
+.dff-label-clk,
+.palette-dff-label-clk {
+  left: 6px;
+  bottom: 8px;
+}
+
+.dff-label-q,
+.palette-dff-label-q {
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.dff-state {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font: 700 14px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  color: #0f172a;
+  transition: color 140ms ease-out;
+}
+
+.node-dff.is-on .dff-chip {
+  border-color: #f97316;
+  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.16), 0 0 14px rgba(249, 115, 22, 0.12);
+}
+
+.node-dff.is-on .dff-state {
+  color: #c2410c;
+}
+
+.node-dff .node-port-input-d {
+  top: 34%;
+}
+
+.node-dff .node-port-input-clk {
+  top: 72%;
+}
+
+.node-dff .node-port-output-q {
+  top: 50%;
+}
+
+.palette-dff-icon {
+  width: 56px;
+  height: 36px;
+  margin: 0 auto;
+}
+
 /* --- light color dialog --- */
 .light-dialog-backdrop {
   position: fixed;
@@ -1452,6 +1620,12 @@ body {
 .account-circuits h3 {
   font-size: 13px;
   margin-bottom: 4px;
+}
+
+.account-avatar {
+  object-fit: cover;
+  background: #f3f4f6;
+  flex: 0 0 auto;
 }
 
 .form-row {
@@ -3286,7 +3460,7 @@ body {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   white-space: nowrap;
   opacity: 1;
 }
@@ -3452,12 +3626,14 @@ body {
 .ic-edit-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 4px 10px;
   border-radius: 999px;
   background: #111827;
   color: #f9fafb;
   font-size: 12px;
+  border: 1px solid rgba(249,115,22,0.24);
 }
 
 .ic-edit-toolbar[hidden] {
@@ -3476,6 +3652,8 @@ body {
 
 .ic-edit-toolbar-rename,
 .ic-edit-toolbar-done {
+  appearance: none;
+  opacity: 1;
   padding: 4px 10px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.28);
@@ -3488,7 +3666,12 @@ body {
 .ic-edit-toolbar-done {
   background: #f97316;
   border-color: #ea580c;
-  color: #fff7ed;
+  color: #111827;
+}
+
+.ic-edit-toolbar-rename:hover,
+.ic-edit-toolbar-done:hover {
+  filter: brightness(0.97);
 }
 
 .toolbox-preview-wrap {
@@ -3570,27 +3753,28 @@ body {
 
 .palette-section-grid-ics .palette-item-ic {
   height: auto;
-  min-height: 164px;
+  min-height: 186px;
 }
 
 .palette-section-grid-ics .palette-ic-node {
-  min-height: 164px;
-  padding: 8px 8px 10px;
-  gap: 6px;
+  min-height: 186px;
+  padding: 9px 8px 12px;
+  gap: 8px;
+  overflow: visible;
 }
 
 .palette-section-grid-ics .ic-mini-header {
-  min-height: 0;
+  min-height: 2.2rem;
 }
 
 .palette-section-grid-ics .ic-mini-title {
-  font-size: 0.88rem;
-  line-height: 1.02;
+  font-size: 0.84rem;
+  line-height: 1.08;
 }
 
 .palette-section-grid-ics .ic-mini-preview {
-  flex: 0 0 40px;
-  min-height: 40px;
+  flex: 0 0 44px;
+  min-height: 44px;
 }
 
 .palette-section-grid-ics .ic-card-actions {
@@ -3599,8 +3783,8 @@ body {
 }
 
 .palette-section-grid-ics .ic-card-button {
-  font-size: 0.6rem;
-  padding: 5px 7px;
+  font-size: 0.62rem;
+  padding: 6px 7px;
   letter-spacing: 0;
 }
 
@@ -3860,6 +4044,24 @@ body {
   pointer-events: auto;
 }
 
+.cable-body.is-dense .cable-socket {
+  width: 10px;
+  height: 10px;
+  border-width: 2px;
+  box-shadow:
+    0 0 0 1px rgba(15,23,42,0.08),
+    0 2px 4px rgba(15,23,42,0.12);
+}
+
+.cable-body.is-dense .cable-end-block {
+  width: 18px;
+  border-radius: 7px;
+}
+
+.cable-body.is-dense .cable-end-block::after {
+  width: 6px;
+}
+
 .cable-socket-left {
   left: 11px;
 }
@@ -4019,5 +4221,6 @@ body {
 
 .ic-edit-toolbar-done {
   background: #f97316;
-  color: #fff7ed;
+  border-color: #ea580c;
+  color: #111827;
 }

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { basename, dirname, resolve } from "path";
+import { buildBuiltinStoreFragment } from "./builtin-content";
 
 export type Visibility = "private" | "preview" | "open";
 
@@ -625,12 +626,18 @@ function mergeBundledStoreIntoPersistent(target: DataStore, source: DataStore) {
   mergeWorkspaceDrafts(target, source);
 }
 
+function mergeBuiltinStoreIntoTarget(target: DataStore) {
+  const builtin = normalizeStore(buildBuiltinStoreFragment());
+  mergeBundledStoreIntoPersistent(target, builtin);
+}
+
 export function initializeStorage(): RuntimeStorage {
   const bundledFilePath = resolveBundledFilePath();
   const externalFilePath = resolveExternalFilePath();
 
   if (!externalFilePath) {
     const { store } = readStore(bundledFilePath);
+    mergeBuiltinStoreIntoTarget(store);
     writeStore(bundledFilePath, store);
     return {
       bundledFilePath,
@@ -652,6 +659,8 @@ export function initializeStorage(): RuntimeStorage {
     mergeBundledStoreIntoPersistent(persistent.store, bundled.store);
     persistent.store.metadata.appliedBundledSnapshotHashes.push(bundledHash);
   }
+
+  mergeBuiltinStoreIntoTarget(persistent.store);
 
   writeStore(externalFilePath, persistent.store);
 

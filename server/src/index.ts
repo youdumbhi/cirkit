@@ -4,6 +4,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import { OAuth2Client } from "google-auth-library";
 import "dotenv/config";
+import { BUILTIN_OWNER_GOOGLE_SUB } from "./builtin-content";
 import {
   Circuit,
   initializeStorage,
@@ -39,10 +40,15 @@ function saveStore() {
   storage.save();
 }
 
+function isBuiltinOwner(ownerGoogleSub?: string) {
+  return ownerGoogleSub === BUILTIN_OWNER_GOOGLE_SUB;
+}
+
 function toClientCircuit(circuit: Circuit) {
   return {
     id: circuit.id,
     ownerId: circuit.ownerId,
+    isBuiltin: isBuiltinOwner(circuit.ownerGoogleSub),
     title: circuit.title,
     visibility: circuit.visibility,
     data: circuit.data,
@@ -53,6 +59,7 @@ function toClientCircuitSummary(circuit: Circuit) {
   return {
     id: circuit.id,
     ownerId: circuit.ownerId,
+    isBuiltin: isBuiltinOwner(circuit.ownerGoogleSub),
     title: circuit.title,
     visibility: circuit.visibility,
   };
@@ -62,6 +69,7 @@ function toClientToolboxEntry(entry: ToolboxIC) {
   return {
     id: entry.id,
     ownerId: entry.ownerId,
+    isBuiltin: isBuiltinOwner(entry.ownerGoogleSub),
     name: entry.name,
     description: entry.description,
     data: entry.data,
@@ -397,6 +405,7 @@ api.get("/toolbox", (_req: Request, res: Response) => {
     id: ic.id,
     name: ic.name,
     ownerId: ic.ownerId,
+    isBuiltin: isBuiltinOwner(ic.ownerGoogleSub),
     createdAt: ic.createdAt,
   }));
   res.json(list);
