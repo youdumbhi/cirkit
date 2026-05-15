@@ -1,0 +1,5375 @@
+{
+  "nextUserId": 3,
+  "nextCircuitId": 5,
+  "nextToolboxId": 6,
+  "users": [
+    {
+      "id": 1,
+      "googleSub": "118290389026831832112",
+      "email": "hilolyoudumb@gmail.com",
+      "name": "hi lol",
+      "picture": "https://lh3.googleusercontent.com/a/ACg8ocLNU7-gmWGaf-maWsgWbSPFQjMZ6fXhGKrPGeOaLruIpaAs0Q=s96-c"
+    },
+    {
+      "id": 2,
+      "googleSub": "builtin-library",
+      "email": "library@cirkit.local",
+      "name": "Library"
+    }
+  ],
+  "circuits": [
+    {
+      "id": 1,
+      "key": "builtin-circuit-calculator",
+      "ownerId": 2,
+      "ownerGoogleSub": "builtin-library",
+      "title": "2-Bit Calculator",
+      "visibility": "preview",
+      "data": {
+        "version": 1,
+        "nodes": [
+          {
+            "id": 1,
+            "type": "SWITCH",
+            "x": 360,
+            "y": 96,
+            "value": false,
+            "rotation": 0,
+            "titleText": "A0"
+          },
+          {
+            "id": 2,
+            "type": "SWITCH",
+            "x": 360,
+            "y": 192,
+            "value": false,
+            "rotation": 0,
+            "titleText": "A1"
+          },
+          {
+            "id": 3,
+            "type": "SWITCH",
+            "x": 360,
+            "y": 360,
+            "value": false,
+            "rotation": 0,
+            "titleText": "B0"
+          },
+          {
+            "id": 4,
+            "type": "SWITCH",
+            "x": 360,
+            "y": 456,
+            "value": false,
+            "rotation": 0,
+            "titleText": "B1"
+          },
+          {
+            "id": 5,
+            "type": "SWITCH",
+            "x": 360,
+            "y": 624,
+            "value": false,
+            "rotation": 0,
+            "titleText": "SUB"
+          },
+          {
+            "id": 6,
+            "type": "IC",
+            "x": 840,
+            "y": 264,
+            "value": false,
+            "rotation": 0,
+            "icDefId": 3
+          },
+          {
+            "id": 7,
+            "type": "XOR",
+            "x": 576,
+            "y": 372,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 8,
+            "type": "XOR",
+            "x": 576,
+            "y": 468,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 9,
+            "type": "POWER",
+            "x": 408,
+            "y": 744,
+            "value": true,
+            "rotation": 0,
+            "titleText": "1"
+          },
+          {
+            "id": 10,
+            "type": "NOT",
+            "x": 528,
+            "y": 744,
+            "value": false,
+            "rotation": 0,
+            "titleText": "0"
+          },
+          {
+            "id": 11,
+            "type": "NUMBER_DISPLAY",
+            "x": 1320,
+            "y": 72,
+            "value": false,
+            "rotation": 0,
+            "numberDigits": 1,
+            "titleText": "A"
+          },
+          {
+            "id": 12,
+            "type": "NUMBER_DISPLAY",
+            "x": 1320,
+            "y": 288,
+            "value": false,
+            "rotation": 0,
+            "numberDigits": 1,
+            "titleText": "B"
+          },
+          {
+            "id": 13,
+            "type": "NUMBER_DISPLAY",
+            "x": 1320,
+            "y": 576,
+            "value": false,
+            "rotation": 0,
+            "numberDigits": 1,
+            "titleText": "OUT"
+          },
+          {
+            "id": 14,
+            "type": "LED",
+            "x": 1704,
+            "y": 600,
+            "value": false,
+            "rotation": 0,
+            "lightColor": "#27ae60",
+            "titleText": "ADD"
+          },
+          {
+            "id": 15,
+            "type": "LED",
+            "x": 1704,
+            "y": 696,
+            "value": false,
+            "rotation": 0,
+            "lightColor": "#27ae60",
+            "titleText": "SUB"
+          },
+          {
+            "id": 16,
+            "type": "NOT",
+            "x": 480,
+            "y": 624,
+            "value": false,
+            "rotation": 0
+          }
+        ],
+        "notes": [
+          {
+            "id": 1,
+            "x": 36,
+            "y": 36,
+            "width": 248,
+            "height": 136,
+            "text": "2-bit calculator\n\nA and B are the inputs.\nSUB off = A + B\nSUB on = A - B (two's complement)."
+          },
+          {
+            "id": 2,
+            "x": 1332,
+            "y": 420,
+            "width": 252,
+            "height": 108,
+            "text": "The result display shows the full 4-bit output from the adder IC, so subtraction can go negative in two's complement."
+          }
+        ],
+        "wires": [
+          {
+            "fromNodeId": 1,
+            "toNodeId": 6,
+            "fromPortId": "1:out:0",
+            "toPortId": "6:in:0"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 6,
+            "fromPortId": "2:out:0",
+            "toPortId": "6:in:1"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 6,
+            "fromPortId": "10:out:1",
+            "toPortId": "6:in:2"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 6,
+            "fromPortId": "10:out:1",
+            "toPortId": "6:in:3"
+          },
+          {
+            "fromNodeId": 5,
+            "toNodeId": 7,
+            "fromPortId": "5:out:0",
+            "toPortId": "7:in:b"
+          },
+          {
+            "fromNodeId": 3,
+            "toNodeId": 7,
+            "fromPortId": "3:out:0",
+            "toPortId": "7:in:a"
+          },
+          {
+            "fromNodeId": 5,
+            "toNodeId": 8,
+            "fromPortId": "5:out:0",
+            "toPortId": "8:in:b"
+          },
+          {
+            "fromNodeId": 4,
+            "toNodeId": 8,
+            "fromPortId": "4:out:0",
+            "toPortId": "8:in:a"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 6,
+            "fromPortId": "7:out:2",
+            "toPortId": "6:in:4"
+          },
+          {
+            "fromNodeId": 8,
+            "toNodeId": 6,
+            "fromPortId": "8:out:2",
+            "toPortId": "6:in:5"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 6,
+            "fromPortId": "10:out:1",
+            "toPortId": "6:in:6"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 6,
+            "fromPortId": "10:out:1",
+            "toPortId": "6:in:7"
+          },
+          {
+            "fromNodeId": 5,
+            "toNodeId": 6,
+            "fromPortId": "5:out:0",
+            "toPortId": "6:in:8"
+          },
+          {
+            "fromNodeId": 1,
+            "toNodeId": 11,
+            "fromPortId": "1:out:0",
+            "toPortId": "11:in:0"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 11,
+            "fromPortId": "2:out:0",
+            "toPortId": "11:in:1"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 11,
+            "fromPortId": "10:out:1",
+            "toPortId": "11:in:2"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 11,
+            "fromPortId": "10:out:1",
+            "toPortId": "11:in:3"
+          },
+          {
+            "fromNodeId": 3,
+            "toNodeId": 12,
+            "fromPortId": "3:out:0",
+            "toPortId": "12:in:0"
+          },
+          {
+            "fromNodeId": 4,
+            "toNodeId": 12,
+            "fromPortId": "4:out:0",
+            "toPortId": "12:in:1"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 12,
+            "fromPortId": "10:out:1",
+            "toPortId": "12:in:2"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 12,
+            "fromPortId": "10:out:1",
+            "toPortId": "12:in:3"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 13,
+            "fromPortId": "6:out:0",
+            "toPortId": "13:in:0"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 13,
+            "fromPortId": "6:out:1",
+            "toPortId": "13:in:1"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 13,
+            "fromPortId": "6:out:2",
+            "toPortId": "13:in:2"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 13,
+            "fromPortId": "6:out:3",
+            "toPortId": "13:in:3"
+          },
+          {
+            "fromNodeId": 5,
+            "toNodeId": 15,
+            "fromPortId": "5:out:0",
+            "toPortId": "15:in:0"
+          },
+          {
+            "fromNodeId": 5,
+            "toNodeId": 16,
+            "fromPortId": "5:out:0",
+            "toPortId": "16:in:0"
+          },
+          {
+            "fromNodeId": 16,
+            "toNodeId": 14,
+            "fromPortId": "16:out:1",
+            "toPortId": "14:in:0"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 10,
+            "fromPortId": "9:out:0",
+            "toPortId": "10:in:0"
+          }
+        ],
+        "icDefinitions": [
+          {
+            "id": 1,
+            "name": "HALF ADDER",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 40,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A"
+              },
+              {
+                "id": 2,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 136,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B"
+              },
+              {
+                "id": 3,
+                "type": "XOR",
+                "x": 156,
+                "y": 52,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 4,
+                "type": "AND",
+                "x": 156,
+                "y": 148,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 5,
+                "type": "OUTPUT",
+                "x": 336,
+                "y": 52,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "SUM"
+              },
+              {
+                "id": 6,
+                "type": "OUTPUT",
+                "x": 336,
+                "y": 148,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "CARRY"
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 3,
+                "fromPortId": "1:out:0",
+                "toPortId": "3:in:a"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 3,
+                "fromPortId": "2:out:0",
+                "toPortId": "3:in:b"
+              },
+              {
+                "fromNodeId": 1,
+                "toNodeId": 4,
+                "fromPortId": "1:out:0",
+                "toPortId": "4:in:a"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 4,
+                "fromPortId": "2:out:0",
+                "toPortId": "4:in:b"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 5,
+                "fromPortId": "3:out:2",
+                "toPortId": "5:in:0"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 6,
+                "fromPortId": "4:out:2",
+                "toPortId": "6:in:0"
+              }
+            ],
+            "inputNodeIds": [
+              1,
+              2
+            ],
+            "outputNodeIds": [
+              5,
+              6
+            ],
+            "ledNodeIds": []
+          },
+          {
+            "id": 2,
+            "name": "FULL ADDER",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 40,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A"
+              },
+              {
+                "id": 2,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 112,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B"
+              },
+              {
+                "id": 3,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "titleText": "C IN"
+              },
+              {
+                "id": 4,
+                "type": "IC",
+                "x": 204,
+                "y": 56,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 1
+              },
+              {
+                "id": 5,
+                "type": "IC",
+                "x": 468,
+                "y": 116,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 1
+              },
+              {
+                "id": 6,
+                "type": "OR",
+                "x": 720,
+                "y": 128,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 7,
+                "type": "OUTPUT",
+                "x": 900,
+                "y": 88,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "SUM"
+              },
+              {
+                "id": 8,
+                "type": "OUTPUT",
+                "x": 900,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "C OUT"
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 4,
+                "fromPortId": "1:out:0",
+                "toPortId": "4:in:0"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 4,
+                "fromPortId": "2:out:0",
+                "toPortId": "4:in:1"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 5,
+                "fromPortId": "4:out:0",
+                "toPortId": "5:in:0"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 5,
+                "fromPortId": "3:out:0",
+                "toPortId": "5:in:1"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 7,
+                "fromPortId": "5:out:0",
+                "toPortId": "7:in:0"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 6,
+                "fromPortId": "4:out:1",
+                "toPortId": "6:in:a"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 6,
+                "fromPortId": "5:out:1",
+                "toPortId": "6:in:b"
+              },
+              {
+                "fromNodeId": 6,
+                "toNodeId": 8,
+                "fromPortId": "6:out:2",
+                "toPortId": "8:in:0"
+              }
+            ],
+            "inputNodeIds": [
+              1,
+              2,
+              3
+            ],
+            "outputNodeIds": [
+              7,
+              8
+            ],
+            "ledNodeIds": [],
+            "compactLayout": {
+              "nodeWidth": 188,
+              "bodyHeight": 176,
+              "portPitch": 16
+            }
+          },
+          {
+            "id": 3,
+            "name": "4-BIT ADDER",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 56,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A0"
+              },
+              {
+                "id": 2,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 128,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A1"
+              },
+              {
+                "id": 3,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 200,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A2"
+              },
+              {
+                "id": 4,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 272,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A3"
+              },
+              {
+                "id": 5,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 392,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B0"
+              },
+              {
+                "id": 6,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 464,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B1"
+              },
+              {
+                "id": 7,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 536,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B2"
+              },
+              {
+                "id": 8,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 608,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B3"
+              },
+              {
+                "id": 9,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 704,
+                "value": false,
+                "rotation": 0,
+                "titleText": "C IN"
+              },
+              {
+                "id": 10,
+                "type": "IC",
+                "x": 264,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 2
+              },
+              {
+                "id": 11,
+                "type": "IC",
+                "x": 528,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 2
+              },
+              {
+                "id": 12,
+                "type": "IC",
+                "x": 792,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 2
+              },
+              {
+                "id": 13,
+                "type": "IC",
+                "x": 1056,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 2
+              },
+              {
+                "id": 14,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 72,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "S0"
+              },
+              {
+                "id": 15,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 168,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "S1"
+              },
+              {
+                "id": 16,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 264,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "S2"
+              },
+              {
+                "id": 17,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 360,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "S3"
+              },
+              {
+                "id": 18,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 504,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "C OUT"
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 10,
+                "fromPortId": "1:out:0",
+                "toPortId": "10:in:0"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 10,
+                "fromPortId": "5:out:0",
+                "toPortId": "10:in:1"
+              },
+              {
+                "fromNodeId": 10,
+                "toNodeId": 14,
+                "fromPortId": "10:out:0",
+                "toPortId": "14:in:0"
+              },
+              {
+                "fromNodeId": 9,
+                "toNodeId": 10,
+                "fromPortId": "9:out:0",
+                "toPortId": "10:in:2"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 11,
+                "fromPortId": "2:out:0",
+                "toPortId": "11:in:0"
+              },
+              {
+                "fromNodeId": 6,
+                "toNodeId": 11,
+                "fromPortId": "6:out:0",
+                "toPortId": "11:in:1"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 15,
+                "fromPortId": "11:out:0",
+                "toPortId": "15:in:0"
+              },
+              {
+                "fromNodeId": 10,
+                "toNodeId": 11,
+                "fromPortId": "10:out:1",
+                "toPortId": "11:in:2"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 12,
+                "fromPortId": "3:out:0",
+                "toPortId": "12:in:0"
+              },
+              {
+                "fromNodeId": 7,
+                "toNodeId": 12,
+                "fromPortId": "7:out:0",
+                "toPortId": "12:in:1"
+              },
+              {
+                "fromNodeId": 12,
+                "toNodeId": 16,
+                "fromPortId": "12:out:0",
+                "toPortId": "16:in:0"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 12,
+                "fromPortId": "11:out:1",
+                "toPortId": "12:in:2"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 13,
+                "fromPortId": "4:out:0",
+                "toPortId": "13:in:0"
+              },
+              {
+                "fromNodeId": 8,
+                "toNodeId": 13,
+                "fromPortId": "8:out:0",
+                "toPortId": "13:in:1"
+              },
+              {
+                "fromNodeId": 13,
+                "toNodeId": 17,
+                "fromPortId": "13:out:0",
+                "toPortId": "17:in:0"
+              },
+              {
+                "fromNodeId": 12,
+                "toNodeId": 13,
+                "fromPortId": "12:out:1",
+                "toPortId": "13:in:2"
+              },
+              {
+                "fromNodeId": 13,
+                "toNodeId": 18,
+                "fromPortId": "13:out:1",
+                "toPortId": "18:in:0"
+              }
+            ],
+            "inputNodeIds": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "outputNodeIds": [
+              14,
+              15,
+              16,
+              17,
+              18
+            ],
+            "ledNodeIds": [],
+            "compactLayout": {
+              "nodeWidth": 220,
+              "bodyHeight": 232,
+              "portPitch": 14
+            }
+          }
+        ],
+        "nextIds": {
+          "nextNodeId": 17,
+          "nextWireId": 30,
+          "nextICId": 4,
+          "nextNoteId": 3
+        }
+      }
+    },
+    {
+      "id": 2,
+      "key": "builtin-circuit-letter-display",
+      "ownerId": 2,
+      "ownerGoogleSub": "builtin-library",
+      "title": "Letter Display",
+      "visibility": "preview",
+      "data": {
+        "version": 1,
+        "nodes": [
+          {
+            "id": 1,
+            "type": "SWITCH",
+            "x": 72,
+            "y": 96,
+            "value": false,
+            "rotation": 0,
+            "titleText": "S1"
+          },
+          {
+            "id": 2,
+            "type": "SWITCH",
+            "x": 72,
+            "y": 192,
+            "value": false,
+            "rotation": 0,
+            "titleText": "S0"
+          },
+          {
+            "id": 3,
+            "type": "DISPLAY",
+            "x": 1176,
+            "y": 144,
+            "value": false,
+            "rotation": 0,
+            "displayWidth": 5,
+            "displayHeight": 5,
+            "titleText": "LETTER"
+          },
+          {
+            "id": 4,
+            "type": "NOT",
+            "x": 216,
+            "y": 72,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 5,
+            "type": "NOT",
+            "x": 216,
+            "y": 120,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 6,
+            "type": "AND",
+            "x": 348,
+            "y": 72,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 7,
+            "type": "AND",
+            "x": 348,
+            "y": 144,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 8,
+            "type": "AND",
+            "x": 348,
+            "y": 216,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 9,
+            "type": "AND",
+            "x": 348,
+            "y": 288,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 10,
+            "type": "OR",
+            "x": 732,
+            "y": 72,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 11,
+            "type": "OR",
+            "x": 816,
+            "y": 72,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 12,
+            "type": "OR",
+            "x": 732,
+            "y": 96,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 13,
+            "type": "OR",
+            "x": 732,
+            "y": 120,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 14,
+            "type": "OR",
+            "x": 732,
+            "y": 144,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 15,
+            "type": "OR",
+            "x": 732,
+            "y": 168,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 16,
+            "type": "OR",
+            "x": 732,
+            "y": 192,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 17,
+            "type": "OR",
+            "x": 816,
+            "y": 192,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 18,
+            "type": "OR",
+            "x": 900,
+            "y": 192,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 19,
+            "type": "NOT",
+            "x": 96,
+            "y": 24,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 20,
+            "type": "POWER",
+            "x": 24,
+            "y": 24,
+            "value": true,
+            "rotation": 0
+          },
+          {
+            "id": 21,
+            "type": "OR",
+            "x": 732,
+            "y": 288,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 22,
+            "type": "OR",
+            "x": 732,
+            "y": 312,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 23,
+            "type": "OR",
+            "x": 816,
+            "y": 312,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 24,
+            "type": "OR",
+            "x": 900,
+            "y": 312,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 25,
+            "type": "OR",
+            "x": 732,
+            "y": 336,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 26,
+            "type": "OR",
+            "x": 732,
+            "y": 360,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 27,
+            "type": "OR",
+            "x": 732,
+            "y": 384,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 28,
+            "type": "OR",
+            "x": 732,
+            "y": 408,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 29,
+            "type": "OR",
+            "x": 732,
+            "y": 432,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 30,
+            "type": "OR",
+            "x": 816,
+            "y": 432,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 31,
+            "type": "OR",
+            "x": 900,
+            "y": 432,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 32,
+            "type": "OR",
+            "x": 732,
+            "y": 528,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 33,
+            "type": "OR",
+            "x": 732,
+            "y": 552,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 34,
+            "type": "OR",
+            "x": 816,
+            "y": 552,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 35,
+            "type": "OR",
+            "x": 732,
+            "y": 576,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 36,
+            "type": "OR",
+            "x": 816,
+            "y": 576,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 37,
+            "type": "OR",
+            "x": 732,
+            "y": 600,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 38,
+            "type": "OR",
+            "x": 816,
+            "y": 600,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 39,
+            "type": "OR",
+            "x": 732,
+            "y": 624,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 40,
+            "type": "OR",
+            "x": 816,
+            "y": 624,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 41,
+            "type": "OR",
+            "x": 732,
+            "y": 648,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 42,
+            "type": "OR",
+            "x": 816,
+            "y": 648,
+            "value": false,
+            "rotation": 0
+          }
+        ],
+        "notes": [
+          {
+            "id": 1,
+            "x": 36,
+            "y": 360,
+            "width": 288,
+            "height": 144,
+            "text": "2-bit letter decoder\n\n00 = H\n01 = E\n10 = L\n11 = O"
+          }
+        ],
+        "wires": [
+          {
+            "fromNodeId": 1,
+            "toNodeId": 4,
+            "fromPortId": "1:out:0",
+            "toPortId": "4:in:0"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 5,
+            "fromPortId": "2:out:0",
+            "toPortId": "5:in:0"
+          },
+          {
+            "fromNodeId": 4,
+            "toNodeId": 6,
+            "fromPortId": "4:out:1",
+            "toPortId": "6:in:a"
+          },
+          {
+            "fromNodeId": 5,
+            "toNodeId": 6,
+            "fromPortId": "5:out:1",
+            "toPortId": "6:in:b"
+          },
+          {
+            "fromNodeId": 4,
+            "toNodeId": 7,
+            "fromPortId": "4:out:1",
+            "toPortId": "7:in:a"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 7,
+            "fromPortId": "2:out:0",
+            "toPortId": "7:in:b"
+          },
+          {
+            "fromNodeId": 1,
+            "toNodeId": 8,
+            "fromPortId": "1:out:0",
+            "toPortId": "8:in:a"
+          },
+          {
+            "fromNodeId": 5,
+            "toNodeId": 8,
+            "fromPortId": "5:out:1",
+            "toPortId": "8:in:b"
+          },
+          {
+            "fromNodeId": 1,
+            "toNodeId": 9,
+            "fromPortId": "1:out:0",
+            "toPortId": "9:in:a"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 9,
+            "fromPortId": "2:out:0",
+            "toPortId": "9:in:b"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 10,
+            "fromPortId": "6:out:2",
+            "toPortId": "10:in:a"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 10,
+            "fromPortId": "7:out:2",
+            "toPortId": "10:in:b"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 11,
+            "fromPortId": "10:out:2",
+            "toPortId": "11:in:a"
+          },
+          {
+            "fromNodeId": 8,
+            "toNodeId": 11,
+            "fromPortId": "8:out:2",
+            "toPortId": "11:in:b"
+          },
+          {
+            "fromNodeId": 11,
+            "toNodeId": 3,
+            "fromPortId": "11:out:2",
+            "toPortId": "3:in:0"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 12,
+            "fromPortId": "7:out:2",
+            "toPortId": "12:in:a"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 12,
+            "fromPortId": "9:out:2",
+            "toPortId": "12:in:b"
+          },
+          {
+            "fromNodeId": 12,
+            "toNodeId": 3,
+            "fromPortId": "12:out:2",
+            "toPortId": "3:in:1"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 13,
+            "fromPortId": "7:out:2",
+            "toPortId": "13:in:a"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 13,
+            "fromPortId": "9:out:2",
+            "toPortId": "13:in:b"
+          },
+          {
+            "fromNodeId": 13,
+            "toNodeId": 3,
+            "fromPortId": "13:out:2",
+            "toPortId": "3:in:2"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 14,
+            "fromPortId": "7:out:2",
+            "toPortId": "14:in:a"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 14,
+            "fromPortId": "9:out:2",
+            "toPortId": "14:in:b"
+          },
+          {
+            "fromNodeId": 14,
+            "toNodeId": 3,
+            "fromPortId": "14:out:2",
+            "toPortId": "3:in:3"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 15,
+            "fromPortId": "6:out:2",
+            "toPortId": "15:in:a"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 15,
+            "fromPortId": "7:out:2",
+            "toPortId": "15:in:b"
+          },
+          {
+            "fromNodeId": 15,
+            "toNodeId": 3,
+            "fromPortId": "15:out:2",
+            "toPortId": "3:in:4"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 16,
+            "fromPortId": "6:out:2",
+            "toPortId": "16:in:a"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 16,
+            "fromPortId": "7:out:2",
+            "toPortId": "16:in:b"
+          },
+          {
+            "fromNodeId": 16,
+            "toNodeId": 17,
+            "fromPortId": "16:out:2",
+            "toPortId": "17:in:a"
+          },
+          {
+            "fromNodeId": 8,
+            "toNodeId": 17,
+            "fromPortId": "8:out:2",
+            "toPortId": "17:in:b"
+          },
+          {
+            "fromNodeId": 17,
+            "toNodeId": 18,
+            "fromPortId": "17:out:2",
+            "toPortId": "18:in:a"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 18,
+            "fromPortId": "9:out:2",
+            "toPortId": "18:in:b"
+          },
+          {
+            "fromNodeId": 18,
+            "toNodeId": 3,
+            "fromPortId": "18:out:2",
+            "toPortId": "3:in:5"
+          },
+          {
+            "fromNodeId": 20,
+            "toNodeId": 19,
+            "fromPortId": "20:out:0",
+            "toPortId": "19:in:0"
+          },
+          {
+            "fromNodeId": 19,
+            "toNodeId": 3,
+            "fromPortId": "19:out:1",
+            "toPortId": "3:in:6"
+          },
+          {
+            "fromNodeId": 19,
+            "toNodeId": 3,
+            "fromPortId": "19:out:1",
+            "toPortId": "3:in:7"
+          },
+          {
+            "fromNodeId": 19,
+            "toNodeId": 3,
+            "fromPortId": "19:out:1",
+            "toPortId": "3:in:8"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 21,
+            "fromPortId": "6:out:2",
+            "toPortId": "21:in:a"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 21,
+            "fromPortId": "9:out:2",
+            "toPortId": "21:in:b"
+          },
+          {
+            "fromNodeId": 21,
+            "toNodeId": 3,
+            "fromPortId": "21:out:2",
+            "toPortId": "3:in:9"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 22,
+            "fromPortId": "6:out:2",
+            "toPortId": "22:in:a"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 22,
+            "fromPortId": "7:out:2",
+            "toPortId": "22:in:b"
+          },
+          {
+            "fromNodeId": 22,
+            "toNodeId": 23,
+            "fromPortId": "22:out:2",
+            "toPortId": "23:in:a"
+          },
+          {
+            "fromNodeId": 8,
+            "toNodeId": 23,
+            "fromPortId": "8:out:2",
+            "toPortId": "23:in:b"
+          },
+          {
+            "fromNodeId": 23,
+            "toNodeId": 24,
+            "fromPortId": "23:out:2",
+            "toPortId": "24:in:a"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 24,
+            "fromPortId": "9:out:2",
+            "toPortId": "24:in:b"
+          },
+          {
+            "fromNodeId": 24,
+            "toNodeId": 3,
+            "fromPortId": "24:out:2",
+            "toPortId": "3:in:10"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 25,
+            "fromPortId": "6:out:2",
+            "toPortId": "25:in:a"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 25,
+            "fromPortId": "7:out:2",
+            "toPortId": "25:in:b"
+          },
+          {
+            "fromNodeId": 25,
+            "toNodeId": 3,
+            "fromPortId": "25:out:2",
+            "toPortId": "3:in:11"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 26,
+            "fromPortId": "6:out:2",
+            "toPortId": "26:in:a"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 26,
+            "fromPortId": "7:out:2",
+            "toPortId": "26:in:b"
+          },
+          {
+            "fromNodeId": 26,
+            "toNodeId": 3,
+            "fromPortId": "26:out:2",
+            "toPortId": "3:in:12"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 27,
+            "fromPortId": "6:out:2",
+            "toPortId": "27:in:a"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 27,
+            "fromPortId": "7:out:2",
+            "toPortId": "27:in:b"
+          },
+          {
+            "fromNodeId": 27,
+            "toNodeId": 3,
+            "fromPortId": "27:out:2",
+            "toPortId": "3:in:13"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 28,
+            "fromPortId": "6:out:2",
+            "toPortId": "28:in:a"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 28,
+            "fromPortId": "9:out:2",
+            "toPortId": "28:in:b"
+          },
+          {
+            "fromNodeId": 28,
+            "toNodeId": 3,
+            "fromPortId": "28:out:2",
+            "toPortId": "3:in:14"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 29,
+            "fromPortId": "6:out:2",
+            "toPortId": "29:in:a"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 29,
+            "fromPortId": "7:out:2",
+            "toPortId": "29:in:b"
+          },
+          {
+            "fromNodeId": 29,
+            "toNodeId": 30,
+            "fromPortId": "29:out:2",
+            "toPortId": "30:in:a"
+          },
+          {
+            "fromNodeId": 8,
+            "toNodeId": 30,
+            "fromPortId": "8:out:2",
+            "toPortId": "30:in:b"
+          },
+          {
+            "fromNodeId": 30,
+            "toNodeId": 31,
+            "fromPortId": "30:out:2",
+            "toPortId": "31:in:a"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 31,
+            "fromPortId": "9:out:2",
+            "toPortId": "31:in:b"
+          },
+          {
+            "fromNodeId": 31,
+            "toNodeId": 3,
+            "fromPortId": "31:out:2",
+            "toPortId": "3:in:15"
+          },
+          {
+            "fromNodeId": 19,
+            "toNodeId": 3,
+            "fromPortId": "19:out:1",
+            "toPortId": "3:in:16"
+          },
+          {
+            "fromNodeId": 19,
+            "toNodeId": 3,
+            "fromPortId": "19:out:1",
+            "toPortId": "3:in:17"
+          },
+          {
+            "fromNodeId": 19,
+            "toNodeId": 3,
+            "fromPortId": "19:out:1",
+            "toPortId": "3:in:18"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 32,
+            "fromPortId": "6:out:2",
+            "toPortId": "32:in:a"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 32,
+            "fromPortId": "9:out:2",
+            "toPortId": "32:in:b"
+          },
+          {
+            "fromNodeId": 32,
+            "toNodeId": 3,
+            "fromPortId": "32:out:2",
+            "toPortId": "3:in:19"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 33,
+            "fromPortId": "6:out:2",
+            "toPortId": "33:in:a"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 33,
+            "fromPortId": "7:out:2",
+            "toPortId": "33:in:b"
+          },
+          {
+            "fromNodeId": 33,
+            "toNodeId": 34,
+            "fromPortId": "33:out:2",
+            "toPortId": "34:in:a"
+          },
+          {
+            "fromNodeId": 8,
+            "toNodeId": 34,
+            "fromPortId": "8:out:2",
+            "toPortId": "34:in:b"
+          },
+          {
+            "fromNodeId": 34,
+            "toNodeId": 3,
+            "fromPortId": "34:out:2",
+            "toPortId": "3:in:20"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 35,
+            "fromPortId": "7:out:2",
+            "toPortId": "35:in:a"
+          },
+          {
+            "fromNodeId": 8,
+            "toNodeId": 35,
+            "fromPortId": "8:out:2",
+            "toPortId": "35:in:b"
+          },
+          {
+            "fromNodeId": 35,
+            "toNodeId": 36,
+            "fromPortId": "35:out:2",
+            "toPortId": "36:in:a"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 36,
+            "fromPortId": "9:out:2",
+            "toPortId": "36:in:b"
+          },
+          {
+            "fromNodeId": 36,
+            "toNodeId": 3,
+            "fromPortId": "36:out:2",
+            "toPortId": "3:in:21"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 37,
+            "fromPortId": "7:out:2",
+            "toPortId": "37:in:a"
+          },
+          {
+            "fromNodeId": 8,
+            "toNodeId": 37,
+            "fromPortId": "8:out:2",
+            "toPortId": "37:in:b"
+          },
+          {
+            "fromNodeId": 37,
+            "toNodeId": 38,
+            "fromPortId": "37:out:2",
+            "toPortId": "38:in:a"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 38,
+            "fromPortId": "9:out:2",
+            "toPortId": "38:in:b"
+          },
+          {
+            "fromNodeId": 38,
+            "toNodeId": 3,
+            "fromPortId": "38:out:2",
+            "toPortId": "3:in:22"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 39,
+            "fromPortId": "7:out:2",
+            "toPortId": "39:in:a"
+          },
+          {
+            "fromNodeId": 8,
+            "toNodeId": 39,
+            "fromPortId": "8:out:2",
+            "toPortId": "39:in:b"
+          },
+          {
+            "fromNodeId": 39,
+            "toNodeId": 40,
+            "fromPortId": "39:out:2",
+            "toPortId": "40:in:a"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 40,
+            "fromPortId": "9:out:2",
+            "toPortId": "40:in:b"
+          },
+          {
+            "fromNodeId": 40,
+            "toNodeId": 3,
+            "fromPortId": "40:out:2",
+            "toPortId": "3:in:23"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 41,
+            "fromPortId": "6:out:2",
+            "toPortId": "41:in:a"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 41,
+            "fromPortId": "7:out:2",
+            "toPortId": "41:in:b"
+          },
+          {
+            "fromNodeId": 41,
+            "toNodeId": 42,
+            "fromPortId": "41:out:2",
+            "toPortId": "42:in:a"
+          },
+          {
+            "fromNodeId": 8,
+            "toNodeId": 42,
+            "fromPortId": "8:out:2",
+            "toPortId": "42:in:b"
+          },
+          {
+            "fromNodeId": 42,
+            "toNodeId": 3,
+            "fromPortId": "42:out:2",
+            "toPortId": "3:in:24"
+          }
+        ],
+        "icDefinitions": [],
+        "nextIds": {
+          "nextNodeId": 43,
+          "nextWireId": 99,
+          "nextICId": 1,
+          "nextNoteId": 2
+        }
+      }
+    },
+    {
+      "id": 3,
+      "key": "builtin-circuit-song-player",
+      "ownerId": 2,
+      "ownerGoogleSub": "builtin-library",
+      "title": "Song Player",
+      "visibility": "preview",
+      "data": {
+        "version": 1,
+        "nodes": [
+          {
+            "id": 1,
+            "type": "CLOCK",
+            "x": 72,
+            "y": 120,
+            "value": false,
+            "rotation": 0,
+            "clockDelayMs": 260,
+            "titleText": "BEAT"
+          },
+          {
+            "id": 2,
+            "type": "DFF",
+            "x": 408,
+            "y": 96,
+            "value": true,
+            "rotation": 0
+          },
+          {
+            "id": 3,
+            "type": "DFF",
+            "x": 600,
+            "y": 192,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 4,
+            "type": "DFF",
+            "x": 792,
+            "y": 288,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 5,
+            "type": "SPEAKER",
+            "x": 1512,
+            "y": 192,
+            "value": false,
+            "rotation": 0,
+            "speakerFrequencyHz": 262,
+            "titleText": "MELODY"
+          },
+          {
+            "id": 6,
+            "type": "LED",
+            "x": 1512,
+            "y": 456,
+            "value": false,
+            "rotation": 0,
+            "lightColor": "#27ae60",
+            "titleText": "STEP0"
+          },
+          {
+            "id": 7,
+            "type": "LED",
+            "x": 1512,
+            "y": 528,
+            "value": false,
+            "rotation": 0,
+            "lightColor": "#27ae60",
+            "titleText": "STEP1"
+          },
+          {
+            "id": 8,
+            "type": "LED",
+            "x": 1512,
+            "y": 600,
+            "value": false,
+            "rotation": 0,
+            "lightColor": "#27ae60",
+            "titleText": "STEP2"
+          },
+          {
+            "id": 9,
+            "type": "NOT",
+            "x": 336,
+            "y": 24,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 10,
+            "type": "AND",
+            "x": 636,
+            "y": 456,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 11,
+            "type": "XOR",
+            "x": 516,
+            "y": 432,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 12,
+            "type": "XOR",
+            "x": 708,
+            "y": 504,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 13,
+            "type": "GUIDE",
+            "x": 240,
+            "y": 240,
+            "value": false,
+            "rotation": 0,
+            "guideLength": 4
+          },
+          {
+            "id": 14,
+            "type": "NOT",
+            "x": 924,
+            "y": 72,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 15,
+            "type": "NOT",
+            "x": 924,
+            "y": 120,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 16,
+            "type": "NOT",
+            "x": 924,
+            "y": 168,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 17,
+            "type": "AND",
+            "x": 1056,
+            "y": 72,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 18,
+            "type": "AND",
+            "x": 1140,
+            "y": 72,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 19,
+            "type": "AND",
+            "x": 1056,
+            "y": 144,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 20,
+            "type": "AND",
+            "x": 1140,
+            "y": 144,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 21,
+            "type": "AND",
+            "x": 1056,
+            "y": 216,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 22,
+            "type": "AND",
+            "x": 1140,
+            "y": 216,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 23,
+            "type": "AND",
+            "x": 1056,
+            "y": 288,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 24,
+            "type": "AND",
+            "x": 1140,
+            "y": 288,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 25,
+            "type": "AND",
+            "x": 1056,
+            "y": 360,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 26,
+            "type": "AND",
+            "x": 1140,
+            "y": 360,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 27,
+            "type": "AND",
+            "x": 1056,
+            "y": 432,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 28,
+            "type": "AND",
+            "x": 1140,
+            "y": 432,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 29,
+            "type": "AND",
+            "x": 1056,
+            "y": 504,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 30,
+            "type": "AND",
+            "x": 1140,
+            "y": 504,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 31,
+            "type": "AND",
+            "x": 1056,
+            "y": 576,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 32,
+            "type": "AND",
+            "x": 1140,
+            "y": 576,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 33,
+            "type": "OR",
+            "x": 1188,
+            "y": 72,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 34,
+            "type": "OR",
+            "x": 1272,
+            "y": 72,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 35,
+            "type": "OR",
+            "x": 1356,
+            "y": 72,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 36,
+            "type": "OR",
+            "x": 1440,
+            "y": 72,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 37,
+            "type": "OR",
+            "x": 1188,
+            "y": 192,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 38,
+            "type": "OR",
+            "x": 1272,
+            "y": 192,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 39,
+            "type": "OR",
+            "x": 1188,
+            "y": 312,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 40,
+            "type": "OR",
+            "x": 1188,
+            "y": 432,
+            "value": false,
+            "rotation": 0
+          },
+          {
+            "id": 41,
+            "type": "OR",
+            "x": 1272,
+            "y": 432,
+            "value": false,
+            "rotation": 0
+          }
+        ],
+        "notes": [
+          {
+            "id": 1,
+            "x": 36,
+            "y": 384,
+            "width": 300,
+            "height": 132,
+            "text": "8-step melody player\n\nA clock advances the 3-bit counter.\nLogic gates decode each step into a note for the speaker."
+          }
+        ],
+        "wires": [
+          {
+            "fromNodeId": 2,
+            "toNodeId": 9,
+            "fromPortId": "2:out:q",
+            "toPortId": "9:in:0"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 10,
+            "fromPortId": "2:out:q",
+            "toPortId": "10:in:a"
+          },
+          {
+            "fromNodeId": 3,
+            "toNodeId": 10,
+            "fromPortId": "3:out:q",
+            "toPortId": "10:in:b"
+          },
+          {
+            "fromNodeId": 3,
+            "toNodeId": 11,
+            "fromPortId": "3:out:q",
+            "toPortId": "11:in:a"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 11,
+            "fromPortId": "2:out:q",
+            "toPortId": "11:in:b"
+          },
+          {
+            "fromNodeId": 4,
+            "toNodeId": 12,
+            "fromPortId": "4:out:q",
+            "toPortId": "12:in:a"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 12,
+            "fromPortId": "10:out:2",
+            "toPortId": "12:in:b"
+          },
+          {
+            "fromNodeId": 1,
+            "toNodeId": 13,
+            "fromPortId": "1:out:0",
+            "toPortId": "13:in:0"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 2,
+            "fromPortId": "9:out:1",
+            "toPortId": "2:in:d"
+          },
+          {
+            "fromNodeId": 13,
+            "toNodeId": 2,
+            "fromPortId": "13:out:0",
+            "toPortId": "2:in:clk"
+          },
+          {
+            "fromNodeId": 11,
+            "toNodeId": 3,
+            "fromPortId": "11:out:2",
+            "toPortId": "3:in:d"
+          },
+          {
+            "fromNodeId": 13,
+            "toNodeId": 3,
+            "fromPortId": "13:out:1",
+            "toPortId": "3:in:clk"
+          },
+          {
+            "fromNodeId": 12,
+            "toNodeId": 4,
+            "fromPortId": "12:out:2",
+            "toPortId": "4:in:d"
+          },
+          {
+            "fromNodeId": 13,
+            "toNodeId": 4,
+            "fromPortId": "13:out:2",
+            "toPortId": "4:in:clk"
+          },
+          {
+            "fromNodeId": 4,
+            "toNodeId": 14,
+            "fromPortId": "4:out:q",
+            "toPortId": "14:in:0"
+          },
+          {
+            "fromNodeId": 3,
+            "toNodeId": 15,
+            "fromPortId": "3:out:q",
+            "toPortId": "15:in:0"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 16,
+            "fromPortId": "2:out:q",
+            "toPortId": "16:in:0"
+          },
+          {
+            "fromNodeId": 14,
+            "toNodeId": 17,
+            "fromPortId": "14:out:1",
+            "toPortId": "17:in:a"
+          },
+          {
+            "fromNodeId": 15,
+            "toNodeId": 17,
+            "fromPortId": "15:out:1",
+            "toPortId": "17:in:b"
+          },
+          {
+            "fromNodeId": 17,
+            "toNodeId": 18,
+            "fromPortId": "17:out:2",
+            "toPortId": "18:in:a"
+          },
+          {
+            "fromNodeId": 16,
+            "toNodeId": 18,
+            "fromPortId": "16:out:1",
+            "toPortId": "18:in:b"
+          },
+          {
+            "fromNodeId": 14,
+            "toNodeId": 19,
+            "fromPortId": "14:out:1",
+            "toPortId": "19:in:a"
+          },
+          {
+            "fromNodeId": 15,
+            "toNodeId": 19,
+            "fromPortId": "15:out:1",
+            "toPortId": "19:in:b"
+          },
+          {
+            "fromNodeId": 19,
+            "toNodeId": 20,
+            "fromPortId": "19:out:2",
+            "toPortId": "20:in:a"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 20,
+            "fromPortId": "2:out:q",
+            "toPortId": "20:in:b"
+          },
+          {
+            "fromNodeId": 14,
+            "toNodeId": 21,
+            "fromPortId": "14:out:1",
+            "toPortId": "21:in:a"
+          },
+          {
+            "fromNodeId": 3,
+            "toNodeId": 21,
+            "fromPortId": "3:out:q",
+            "toPortId": "21:in:b"
+          },
+          {
+            "fromNodeId": 21,
+            "toNodeId": 22,
+            "fromPortId": "21:out:2",
+            "toPortId": "22:in:a"
+          },
+          {
+            "fromNodeId": 16,
+            "toNodeId": 22,
+            "fromPortId": "16:out:1",
+            "toPortId": "22:in:b"
+          },
+          {
+            "fromNodeId": 14,
+            "toNodeId": 23,
+            "fromPortId": "14:out:1",
+            "toPortId": "23:in:a"
+          },
+          {
+            "fromNodeId": 3,
+            "toNodeId": 23,
+            "fromPortId": "3:out:q",
+            "toPortId": "23:in:b"
+          },
+          {
+            "fromNodeId": 23,
+            "toNodeId": 24,
+            "fromPortId": "23:out:2",
+            "toPortId": "24:in:a"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 24,
+            "fromPortId": "2:out:q",
+            "toPortId": "24:in:b"
+          },
+          {
+            "fromNodeId": 4,
+            "toNodeId": 25,
+            "fromPortId": "4:out:q",
+            "toPortId": "25:in:a"
+          },
+          {
+            "fromNodeId": 15,
+            "toNodeId": 25,
+            "fromPortId": "15:out:1",
+            "toPortId": "25:in:b"
+          },
+          {
+            "fromNodeId": 25,
+            "toNodeId": 26,
+            "fromPortId": "25:out:2",
+            "toPortId": "26:in:a"
+          },
+          {
+            "fromNodeId": 16,
+            "toNodeId": 26,
+            "fromPortId": "16:out:1",
+            "toPortId": "26:in:b"
+          },
+          {
+            "fromNodeId": 4,
+            "toNodeId": 27,
+            "fromPortId": "4:out:q",
+            "toPortId": "27:in:a"
+          },
+          {
+            "fromNodeId": 15,
+            "toNodeId": 27,
+            "fromPortId": "15:out:1",
+            "toPortId": "27:in:b"
+          },
+          {
+            "fromNodeId": 27,
+            "toNodeId": 28,
+            "fromPortId": "27:out:2",
+            "toPortId": "28:in:a"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 28,
+            "fromPortId": "2:out:q",
+            "toPortId": "28:in:b"
+          },
+          {
+            "fromNodeId": 4,
+            "toNodeId": 29,
+            "fromPortId": "4:out:q",
+            "toPortId": "29:in:a"
+          },
+          {
+            "fromNodeId": 3,
+            "toNodeId": 29,
+            "fromPortId": "3:out:q",
+            "toPortId": "29:in:b"
+          },
+          {
+            "fromNodeId": 29,
+            "toNodeId": 30,
+            "fromPortId": "29:out:2",
+            "toPortId": "30:in:a"
+          },
+          {
+            "fromNodeId": 16,
+            "toNodeId": 30,
+            "fromPortId": "16:out:1",
+            "toPortId": "30:in:b"
+          },
+          {
+            "fromNodeId": 4,
+            "toNodeId": 31,
+            "fromPortId": "4:out:q",
+            "toPortId": "31:in:a"
+          },
+          {
+            "fromNodeId": 3,
+            "toNodeId": 31,
+            "fromPortId": "3:out:q",
+            "toPortId": "31:in:b"
+          },
+          {
+            "fromNodeId": 31,
+            "toNodeId": 32,
+            "fromPortId": "31:out:2",
+            "toPortId": "32:in:a"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 32,
+            "fromPortId": "2:out:q",
+            "toPortId": "32:in:b"
+          },
+          {
+            "fromNodeId": 18,
+            "toNodeId": 33,
+            "fromPortId": "18:out:2",
+            "toPortId": "33:in:a"
+          },
+          {
+            "fromNodeId": 20,
+            "toNodeId": 33,
+            "fromPortId": "20:out:2",
+            "toPortId": "33:in:b"
+          },
+          {
+            "fromNodeId": 33,
+            "toNodeId": 34,
+            "fromPortId": "33:out:2",
+            "toPortId": "34:in:a"
+          },
+          {
+            "fromNodeId": 22,
+            "toNodeId": 34,
+            "fromPortId": "22:out:2",
+            "toPortId": "34:in:b"
+          },
+          {
+            "fromNodeId": 34,
+            "toNodeId": 35,
+            "fromPortId": "34:out:2",
+            "toPortId": "35:in:a"
+          },
+          {
+            "fromNodeId": 30,
+            "toNodeId": 35,
+            "fromPortId": "30:out:2",
+            "toPortId": "35:in:b"
+          },
+          {
+            "fromNodeId": 35,
+            "toNodeId": 36,
+            "fromPortId": "35:out:2",
+            "toPortId": "36:in:a"
+          },
+          {
+            "fromNodeId": 32,
+            "toNodeId": 36,
+            "fromPortId": "32:out:2",
+            "toPortId": "36:in:b"
+          },
+          {
+            "fromNodeId": 36,
+            "toNodeId": 5,
+            "fromPortId": "36:out:2",
+            "toPortId": "5:in:0"
+          },
+          {
+            "fromNodeId": 20,
+            "toNodeId": 37,
+            "fromPortId": "20:out:2",
+            "toPortId": "37:in:a"
+          },
+          {
+            "fromNodeId": 26,
+            "toNodeId": 37,
+            "fromPortId": "26:out:2",
+            "toPortId": "37:in:b"
+          },
+          {
+            "fromNodeId": 37,
+            "toNodeId": 38,
+            "fromPortId": "37:out:2",
+            "toPortId": "38:in:a"
+          },
+          {
+            "fromNodeId": 32,
+            "toNodeId": 38,
+            "fromPortId": "32:out:2",
+            "toPortId": "38:in:b"
+          },
+          {
+            "fromNodeId": 38,
+            "toNodeId": 5,
+            "fromPortId": "38:out:2",
+            "toPortId": "5:in:1"
+          },
+          {
+            "fromNodeId": 22,
+            "toNodeId": 39,
+            "fromPortId": "22:out:2",
+            "toPortId": "39:in:a"
+          },
+          {
+            "fromNodeId": 30,
+            "toNodeId": 39,
+            "fromPortId": "30:out:2",
+            "toPortId": "39:in:b"
+          },
+          {
+            "fromNodeId": 39,
+            "toNodeId": 5,
+            "fromPortId": "39:out:2",
+            "toPortId": "5:in:2"
+          },
+          {
+            "fromNodeId": 24,
+            "toNodeId": 40,
+            "fromPortId": "24:out:2",
+            "toPortId": "40:in:a"
+          },
+          {
+            "fromNodeId": 26,
+            "toNodeId": 40,
+            "fromPortId": "26:out:2",
+            "toPortId": "40:in:b"
+          },
+          {
+            "fromNodeId": 40,
+            "toNodeId": 41,
+            "fromPortId": "40:out:2",
+            "toPortId": "41:in:a"
+          },
+          {
+            "fromNodeId": 28,
+            "toNodeId": 41,
+            "fromPortId": "28:out:2",
+            "toPortId": "41:in:b"
+          },
+          {
+            "fromNodeId": 41,
+            "toNodeId": 5,
+            "fromPortId": "41:out:2",
+            "toPortId": "5:in:3"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 6,
+            "fromPortId": "2:out:q",
+            "toPortId": "6:in:0"
+          },
+          {
+            "fromNodeId": 3,
+            "toNodeId": 7,
+            "fromPortId": "3:out:q",
+            "toPortId": "7:in:0"
+          },
+          {
+            "fromNodeId": 4,
+            "toNodeId": 8,
+            "fromPortId": "4:out:q",
+            "toPortId": "8:in:0"
+          }
+        ],
+        "icDefinitions": [],
+        "nextIds": {
+          "nextNodeId": 42,
+          "nextWireId": 75,
+          "nextICId": 1,
+          "nextNoteId": 2
+        }
+      }
+    },
+    {
+      "id": 4,
+      "key": "circuit-15637e24-37f3-459c-9f32-9d16327e42ff",
+      "ownerId": 1,
+      "ownerGoogleSub": "118290389026831832112",
+      "title": "2-Bit Calculator",
+      "visibility": "open",
+      "data": {
+        "version": 1,
+        "nodes": [
+          {
+            "id": 1,
+            "type": "SWITCH",
+            "x": 96,
+            "y": 96,
+            "value": true,
+            "rotation": 0,
+            "titleText": "A0"
+          },
+          {
+            "id": 2,
+            "type": "SWITCH",
+            "x": 96,
+            "y": 192,
+            "value": true,
+            "rotation": 0,
+            "titleText": "A1"
+          },
+          {
+            "id": 3,
+            "type": "SWITCH",
+            "x": 96,
+            "y": 360,
+            "value": true,
+            "rotation": 0,
+            "titleText": "B0"
+          },
+          {
+            "id": 4,
+            "type": "SWITCH",
+            "x": 96,
+            "y": 456,
+            "value": true,
+            "rotation": 0,
+            "titleText": "B1"
+          },
+          {
+            "id": 5,
+            "type": "SWITCH",
+            "x": 96,
+            "y": 624,
+            "value": false,
+            "rotation": 0,
+            "titleText": "SUB"
+          },
+          {
+            "id": 6,
+            "type": "IC",
+            "x": 576,
+            "y": 264,
+            "value": true,
+            "rotation": 0,
+            "icDefId": 3
+          },
+          {
+            "id": 7,
+            "type": "XOR",
+            "x": 312,
+            "y": 372,
+            "value": true,
+            "rotation": 0
+          },
+          {
+            "id": 8,
+            "type": "XOR",
+            "x": 312,
+            "y": 468,
+            "value": true,
+            "rotation": 0
+          },
+          {
+            "id": 9,
+            "type": "POWER",
+            "x": 144,
+            "y": 744,
+            "value": true,
+            "rotation": 0,
+            "titleText": "1"
+          },
+          {
+            "id": 10,
+            "type": "NOT",
+            "x": 264,
+            "y": 744,
+            "value": false,
+            "rotation": 0,
+            "titleText": "0"
+          },
+          {
+            "id": 11,
+            "type": "NUMBER_DISPLAY",
+            "x": 1056,
+            "y": 72,
+            "value": true,
+            "rotation": 0,
+            "numberDigits": 1,
+            "titleText": "A"
+          },
+          {
+            "id": 12,
+            "type": "NUMBER_DISPLAY",
+            "x": 1056,
+            "y": 288,
+            "value": true,
+            "rotation": 0,
+            "numberDigits": 1,
+            "titleText": "B"
+          },
+          {
+            "id": 13,
+            "type": "NUMBER_DISPLAY",
+            "x": 1056,
+            "y": 576,
+            "value": true,
+            "rotation": 0,
+            "numberDigits": 1,
+            "titleText": "OUT"
+          },
+          {
+            "id": 14,
+            "type": "LED",
+            "x": 1440,
+            "y": 600,
+            "value": true,
+            "rotation": 0,
+            "lightColor": "#27ae60",
+            "titleText": "ADD"
+          },
+          {
+            "id": 15,
+            "type": "LED",
+            "x": 1440,
+            "y": 696,
+            "value": false,
+            "rotation": 0,
+            "lightColor": "#27ae60",
+            "titleText": "SUB"
+          },
+          {
+            "id": 16,
+            "type": "NOT",
+            "x": 216,
+            "y": 624,
+            "value": true,
+            "rotation": 0
+          }
+        ],
+        "notes": [
+          {
+            "id": 1,
+            "x": 48,
+            "y": 24,
+            "width": 264,
+            "height": 120,
+            "text": "2-bit calculator\n\nA and B are the inputs.\nSUB off = A + B\nSUB on = A - B (two's complement)."
+          },
+          {
+            "id": 2,
+            "x": 1008,
+            "y": 480,
+            "width": 264,
+            "height": 96,
+            "text": "The result display shows the 4-bit output from the adder IC."
+          }
+        ],
+        "wires": [
+          {
+            "fromNodeId": 1,
+            "toNodeId": 6,
+            "fromPortId": "1:out:0",
+            "toPortId": "6:in:0"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 6,
+            "fromPortId": "2:out:0",
+            "toPortId": "6:in:1"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 6,
+            "fromPortId": "10:out:1",
+            "toPortId": "6:in:2"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 6,
+            "fromPortId": "10:out:1",
+            "toPortId": "6:in:3"
+          },
+          {
+            "fromNodeId": 5,
+            "toNodeId": 7,
+            "fromPortId": "5:out:0",
+            "toPortId": "7:in:b"
+          },
+          {
+            "fromNodeId": 3,
+            "toNodeId": 7,
+            "fromPortId": "3:out:0",
+            "toPortId": "7:in:a"
+          },
+          {
+            "fromNodeId": 5,
+            "toNodeId": 8,
+            "fromPortId": "5:out:0",
+            "toPortId": "8:in:b"
+          },
+          {
+            "fromNodeId": 4,
+            "toNodeId": 8,
+            "fromPortId": "4:out:0",
+            "toPortId": "8:in:a"
+          },
+          {
+            "fromNodeId": 7,
+            "toNodeId": 6,
+            "fromPortId": "7:out:2",
+            "toPortId": "6:in:4"
+          },
+          {
+            "fromNodeId": 8,
+            "toNodeId": 6,
+            "fromPortId": "8:out:2",
+            "toPortId": "6:in:5"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 6,
+            "fromPortId": "10:out:1",
+            "toPortId": "6:in:6"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 6,
+            "fromPortId": "10:out:1",
+            "toPortId": "6:in:7"
+          },
+          {
+            "fromNodeId": 5,
+            "toNodeId": 6,
+            "fromPortId": "5:out:0",
+            "toPortId": "6:in:8"
+          },
+          {
+            "fromNodeId": 1,
+            "toNodeId": 11,
+            "fromPortId": "1:out:0",
+            "toPortId": "11:in:0"
+          },
+          {
+            "fromNodeId": 2,
+            "toNodeId": 11,
+            "fromPortId": "2:out:0",
+            "toPortId": "11:in:1"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 11,
+            "fromPortId": "10:out:1",
+            "toPortId": "11:in:2"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 11,
+            "fromPortId": "10:out:1",
+            "toPortId": "11:in:3"
+          },
+          {
+            "fromNodeId": 3,
+            "toNodeId": 12,
+            "fromPortId": "3:out:0",
+            "toPortId": "12:in:0"
+          },
+          {
+            "fromNodeId": 4,
+            "toNodeId": 12,
+            "fromPortId": "4:out:0",
+            "toPortId": "12:in:1"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 12,
+            "fromPortId": "10:out:1",
+            "toPortId": "12:in:2"
+          },
+          {
+            "fromNodeId": 10,
+            "toNodeId": 12,
+            "fromPortId": "10:out:1",
+            "toPortId": "12:in:3"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 13,
+            "fromPortId": "6:out:0",
+            "toPortId": "13:in:0"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 13,
+            "fromPortId": "6:out:1",
+            "toPortId": "13:in:1"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 13,
+            "fromPortId": "6:out:2",
+            "toPortId": "13:in:2"
+          },
+          {
+            "fromNodeId": 6,
+            "toNodeId": 13,
+            "fromPortId": "6:out:3",
+            "toPortId": "13:in:3"
+          },
+          {
+            "fromNodeId": 5,
+            "toNodeId": 15,
+            "fromPortId": "5:out:0",
+            "toPortId": "15:in:0"
+          },
+          {
+            "fromNodeId": 5,
+            "toNodeId": 16,
+            "fromPortId": "5:out:0",
+            "toPortId": "16:in:0"
+          },
+          {
+            "fromNodeId": 16,
+            "toNodeId": 14,
+            "fromPortId": "16:out:1",
+            "toPortId": "14:in:0"
+          },
+          {
+            "fromNodeId": 9,
+            "toNodeId": 10,
+            "fromPortId": "9:out:0",
+            "toPortId": "10:in:0"
+          }
+        ],
+        "icDefinitions": [
+          {
+            "id": 1,
+            "name": "HALF ADDER",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 40,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A"
+              },
+              {
+                "id": 2,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 136,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B"
+              },
+              {
+                "id": 3,
+                "type": "XOR",
+                "x": 156,
+                "y": 52,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 4,
+                "type": "AND",
+                "x": 156,
+                "y": 148,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 5,
+                "type": "OUTPUT",
+                "x": 336,
+                "y": 52,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "SUM"
+              },
+              {
+                "id": 6,
+                "type": "OUTPUT",
+                "x": 336,
+                "y": 148,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "CARRY"
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 3,
+                "fromPortId": "1:out:0",
+                "toPortId": "3:in:a"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 3,
+                "fromPortId": "2:out:0",
+                "toPortId": "3:in:b"
+              },
+              {
+                "fromNodeId": 1,
+                "toNodeId": 4,
+                "fromPortId": "1:out:0",
+                "toPortId": "4:in:a"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 4,
+                "fromPortId": "2:out:0",
+                "toPortId": "4:in:b"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 5,
+                "fromPortId": "3:out:2",
+                "toPortId": "5:in:0"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 6,
+                "fromPortId": "4:out:2",
+                "toPortId": "6:in:0"
+              }
+            ],
+            "inputNodeIds": [
+              1,
+              2
+            ],
+            "outputNodeIds": [
+              5,
+              6
+            ],
+            "ledNodeIds": [],
+            "paletteHidden": false
+          },
+          {
+            "id": 2,
+            "name": "FULL ADDER",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 40,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A"
+              },
+              {
+                "id": 2,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 112,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B"
+              },
+              {
+                "id": 3,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "titleText": "C IN"
+              },
+              {
+                "id": 4,
+                "type": "IC",
+                "x": 204,
+                "y": 56,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 1
+              },
+              {
+                "id": 5,
+                "type": "IC",
+                "x": 468,
+                "y": 116,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 1
+              },
+              {
+                "id": 6,
+                "type": "OR",
+                "x": 720,
+                "y": 128,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 7,
+                "type": "OUTPUT",
+                "x": 900,
+                "y": 88,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "SUM"
+              },
+              {
+                "id": 8,
+                "type": "OUTPUT",
+                "x": 900,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "C OUT"
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 4,
+                "fromPortId": "1:out:0",
+                "toPortId": "4:in:0"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 4,
+                "fromPortId": "2:out:0",
+                "toPortId": "4:in:1"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 5,
+                "fromPortId": "4:out:0",
+                "toPortId": "5:in:0"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 5,
+                "fromPortId": "3:out:0",
+                "toPortId": "5:in:1"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 7,
+                "fromPortId": "5:out:0",
+                "toPortId": "7:in:0"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 6,
+                "fromPortId": "4:out:1",
+                "toPortId": "6:in:a"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 6,
+                "fromPortId": "5:out:1",
+                "toPortId": "6:in:b"
+              },
+              {
+                "fromNodeId": 6,
+                "toNodeId": 8,
+                "fromPortId": "6:out:2",
+                "toPortId": "8:in:0"
+              }
+            ],
+            "inputNodeIds": [
+              1,
+              2,
+              3
+            ],
+            "outputNodeIds": [
+              7,
+              8
+            ],
+            "ledNodeIds": [],
+            "paletteHidden": false,
+            "compactLayout": {
+              "nodeWidth": 188,
+              "bodyHeight": 176,
+              "portPitch": 16
+            }
+          },
+          {
+            "id": 3,
+            "name": "4-BIT ADDER",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 56,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A0"
+              },
+              {
+                "id": 2,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 128,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A1"
+              },
+              {
+                "id": 3,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 200,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A2"
+              },
+              {
+                "id": 4,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 272,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A3"
+              },
+              {
+                "id": 5,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 392,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B0"
+              },
+              {
+                "id": 6,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 464,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B1"
+              },
+              {
+                "id": 7,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 536,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B2"
+              },
+              {
+                "id": 8,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 608,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B3"
+              },
+              {
+                "id": 9,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 704,
+                "value": false,
+                "rotation": 0,
+                "titleText": "C IN"
+              },
+              {
+                "id": 10,
+                "type": "IC",
+                "x": 264,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 2
+              },
+              {
+                "id": 11,
+                "type": "IC",
+                "x": 528,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 2
+              },
+              {
+                "id": 12,
+                "type": "IC",
+                "x": 792,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 2
+              },
+              {
+                "id": 13,
+                "type": "IC",
+                "x": 1056,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 2
+              },
+              {
+                "id": 14,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 72,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "S0"
+              },
+              {
+                "id": 15,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 168,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "S1"
+              },
+              {
+                "id": 16,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 264,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "S2"
+              },
+              {
+                "id": 17,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 360,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "S3"
+              },
+              {
+                "id": 18,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 504,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "C OUT"
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 10,
+                "fromPortId": "1:out:0",
+                "toPortId": "10:in:0"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 10,
+                "fromPortId": "5:out:0",
+                "toPortId": "10:in:1"
+              },
+              {
+                "fromNodeId": 10,
+                "toNodeId": 14,
+                "fromPortId": "10:out:0",
+                "toPortId": "14:in:0"
+              },
+              {
+                "fromNodeId": 9,
+                "toNodeId": 10,
+                "fromPortId": "9:out:0",
+                "toPortId": "10:in:2"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 11,
+                "fromPortId": "2:out:0",
+                "toPortId": "11:in:0"
+              },
+              {
+                "fromNodeId": 6,
+                "toNodeId": 11,
+                "fromPortId": "6:out:0",
+                "toPortId": "11:in:1"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 15,
+                "fromPortId": "11:out:0",
+                "toPortId": "15:in:0"
+              },
+              {
+                "fromNodeId": 10,
+                "toNodeId": 11,
+                "fromPortId": "10:out:1",
+                "toPortId": "11:in:2"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 12,
+                "fromPortId": "3:out:0",
+                "toPortId": "12:in:0"
+              },
+              {
+                "fromNodeId": 7,
+                "toNodeId": 12,
+                "fromPortId": "7:out:0",
+                "toPortId": "12:in:1"
+              },
+              {
+                "fromNodeId": 12,
+                "toNodeId": 16,
+                "fromPortId": "12:out:0",
+                "toPortId": "16:in:0"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 12,
+                "fromPortId": "11:out:1",
+                "toPortId": "12:in:2"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 13,
+                "fromPortId": "4:out:0",
+                "toPortId": "13:in:0"
+              },
+              {
+                "fromNodeId": 8,
+                "toNodeId": 13,
+                "fromPortId": "8:out:0",
+                "toPortId": "13:in:1"
+              },
+              {
+                "fromNodeId": 13,
+                "toNodeId": 17,
+                "fromPortId": "13:out:0",
+                "toPortId": "17:in:0"
+              },
+              {
+                "fromNodeId": 12,
+                "toNodeId": 13,
+                "fromPortId": "12:out:1",
+                "toPortId": "13:in:2"
+              },
+              {
+                "fromNodeId": 13,
+                "toNodeId": 18,
+                "fromPortId": "13:out:1",
+                "toPortId": "18:in:0"
+              }
+            ],
+            "inputNodeIds": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "outputNodeIds": [
+              14,
+              15,
+              16,
+              17,
+              18
+            ],
+            "ledNodeIds": [],
+            "paletteHidden": false,
+            "compactLayout": {
+              "nodeWidth": 220,
+              "bodyHeight": 232,
+              "portPitch": 14
+            }
+          }
+        ],
+        "nextIds": {
+          "nextNodeId": 17,
+          "nextWireId": 30,
+          "nextICId": 4,
+          "nextNoteId": 3
+        }
+      }
+    }
+  ],
+  "toolboxICs": [
+    {
+      "id": 1,
+      "key": "builtin-toolbox-half-adder",
+      "ownerId": 2,
+      "ownerGoogleSub": "builtin-library",
+      "name": "Half Adder",
+      "description": "Adds two 1-bit inputs into sum and carry.",
+      "data": {
+        "version": 1,
+        "nodes": [
+          {
+            "id": 1,
+            "type": "IC",
+            "x": 96,
+            "y": 96,
+            "value": false,
+            "rotation": 0,
+            "icDefId": 1
+          }
+        ],
+        "notes": [],
+        "wires": [],
+        "icDefinitions": [
+          {
+            "id": 1,
+            "name": "HALF ADDER",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 40,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A"
+              },
+              {
+                "id": 2,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 136,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B"
+              },
+              {
+                "id": 3,
+                "type": "XOR",
+                "x": 156,
+                "y": 52,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 4,
+                "type": "AND",
+                "x": 156,
+                "y": 148,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 5,
+                "type": "OUTPUT",
+                "x": 336,
+                "y": 52,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "SUM"
+              },
+              {
+                "id": 6,
+                "type": "OUTPUT",
+                "x": 336,
+                "y": 148,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "CARRY"
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 3,
+                "fromPortId": "1:out:0",
+                "toPortId": "3:in:a"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 3,
+                "fromPortId": "2:out:0",
+                "toPortId": "3:in:b"
+              },
+              {
+                "fromNodeId": 1,
+                "toNodeId": 4,
+                "fromPortId": "1:out:0",
+                "toPortId": "4:in:a"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 4,
+                "fromPortId": "2:out:0",
+                "toPortId": "4:in:b"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 5,
+                "fromPortId": "3:out:2",
+                "toPortId": "5:in:0"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 6,
+                "fromPortId": "4:out:2",
+                "toPortId": "6:in:0"
+              }
+            ],
+            "inputNodeIds": [
+              1,
+              2
+            ],
+            "outputNodeIds": [
+              5,
+              6
+            ],
+            "ledNodeIds": []
+          }
+        ],
+        "nextIds": {
+          "nextNodeId": 2,
+          "nextWireId": 1,
+          "nextICId": 2,
+          "nextNoteId": 1
+        }
+      },
+      "createdAt": 1775390400000
+    },
+    {
+      "id": 2,
+      "key": "builtin-toolbox-full-adder",
+      "ownerId": 2,
+      "ownerGoogleSub": "builtin-library",
+      "name": "Full Adder",
+      "description": "Adds A, B, and carry-in using two half adders.",
+      "data": {
+        "version": 1,
+        "nodes": [
+          {
+            "id": 1,
+            "type": "IC",
+            "x": 96,
+            "y": 96,
+            "value": false,
+            "rotation": 0,
+            "icDefId": 2
+          }
+        ],
+        "notes": [],
+        "wires": [],
+        "icDefinitions": [
+          {
+            "id": 1,
+            "name": "HALF ADDER",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 40,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A"
+              },
+              {
+                "id": 2,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 136,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B"
+              },
+              {
+                "id": 3,
+                "type": "XOR",
+                "x": 156,
+                "y": 52,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 4,
+                "type": "AND",
+                "x": 156,
+                "y": 148,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 5,
+                "type": "OUTPUT",
+                "x": 336,
+                "y": 52,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "SUM"
+              },
+              {
+                "id": 6,
+                "type": "OUTPUT",
+                "x": 336,
+                "y": 148,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "CARRY"
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 3,
+                "fromPortId": "1:out:0",
+                "toPortId": "3:in:a"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 3,
+                "fromPortId": "2:out:0",
+                "toPortId": "3:in:b"
+              },
+              {
+                "fromNodeId": 1,
+                "toNodeId": 4,
+                "fromPortId": "1:out:0",
+                "toPortId": "4:in:a"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 4,
+                "fromPortId": "2:out:0",
+                "toPortId": "4:in:b"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 5,
+                "fromPortId": "3:out:2",
+                "toPortId": "5:in:0"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 6,
+                "fromPortId": "4:out:2",
+                "toPortId": "6:in:0"
+              }
+            ],
+            "inputNodeIds": [
+              1,
+              2
+            ],
+            "outputNodeIds": [
+              5,
+              6
+            ],
+            "ledNodeIds": []
+          },
+          {
+            "id": 2,
+            "name": "FULL ADDER",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 40,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A"
+              },
+              {
+                "id": 2,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 112,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B"
+              },
+              {
+                "id": 3,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "titleText": "C IN"
+              },
+              {
+                "id": 4,
+                "type": "IC",
+                "x": 204,
+                "y": 56,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 1
+              },
+              {
+                "id": 5,
+                "type": "IC",
+                "x": 468,
+                "y": 116,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 1
+              },
+              {
+                "id": 6,
+                "type": "OR",
+                "x": 720,
+                "y": 128,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 7,
+                "type": "OUTPUT",
+                "x": 900,
+                "y": 88,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "SUM"
+              },
+              {
+                "id": 8,
+                "type": "OUTPUT",
+                "x": 900,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "C OUT"
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 4,
+                "fromPortId": "1:out:0",
+                "toPortId": "4:in:0"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 4,
+                "fromPortId": "2:out:0",
+                "toPortId": "4:in:1"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 5,
+                "fromPortId": "4:out:0",
+                "toPortId": "5:in:0"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 5,
+                "fromPortId": "3:out:0",
+                "toPortId": "5:in:1"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 7,
+                "fromPortId": "5:out:0",
+                "toPortId": "7:in:0"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 6,
+                "fromPortId": "4:out:1",
+                "toPortId": "6:in:a"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 6,
+                "fromPortId": "5:out:1",
+                "toPortId": "6:in:b"
+              },
+              {
+                "fromNodeId": 6,
+                "toNodeId": 8,
+                "fromPortId": "6:out:2",
+                "toPortId": "8:in:0"
+              }
+            ],
+            "inputNodeIds": [
+              1,
+              2,
+              3
+            ],
+            "outputNodeIds": [
+              7,
+              8
+            ],
+            "ledNodeIds": [],
+            "compactLayout": {
+              "nodeWidth": 188,
+              "bodyHeight": 176,
+              "portPitch": 16
+            }
+          }
+        ],
+        "nextIds": {
+          "nextNodeId": 2,
+          "nextWireId": 1,
+          "nextICId": 3,
+          "nextNoteId": 1
+        }
+      },
+      "createdAt": 1775390400001
+    },
+    {
+      "id": 3,
+      "key": "builtin-toolbox-four-bit-adder",
+      "ownerId": 2,
+      "ownerGoogleSub": "builtin-library",
+      "name": "4-Bit Adder",
+      "description": "Chains four full adders for multi-bit math.",
+      "data": {
+        "version": 1,
+        "nodes": [
+          {
+            "id": 1,
+            "type": "IC",
+            "x": 96,
+            "y": 96,
+            "value": false,
+            "rotation": 0,
+            "icDefId": 3
+          }
+        ],
+        "notes": [],
+        "wires": [],
+        "icDefinitions": [
+          {
+            "id": 1,
+            "name": "HALF ADDER",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 40,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A"
+              },
+              {
+                "id": 2,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 136,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B"
+              },
+              {
+                "id": 3,
+                "type": "XOR",
+                "x": 156,
+                "y": 52,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 4,
+                "type": "AND",
+                "x": 156,
+                "y": 148,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 5,
+                "type": "OUTPUT",
+                "x": 336,
+                "y": 52,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "SUM"
+              },
+              {
+                "id": 6,
+                "type": "OUTPUT",
+                "x": 336,
+                "y": 148,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "CARRY"
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 3,
+                "fromPortId": "1:out:0",
+                "toPortId": "3:in:a"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 3,
+                "fromPortId": "2:out:0",
+                "toPortId": "3:in:b"
+              },
+              {
+                "fromNodeId": 1,
+                "toNodeId": 4,
+                "fromPortId": "1:out:0",
+                "toPortId": "4:in:a"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 4,
+                "fromPortId": "2:out:0",
+                "toPortId": "4:in:b"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 5,
+                "fromPortId": "3:out:2",
+                "toPortId": "5:in:0"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 6,
+                "fromPortId": "4:out:2",
+                "toPortId": "6:in:0"
+              }
+            ],
+            "inputNodeIds": [
+              1,
+              2
+            ],
+            "outputNodeIds": [
+              5,
+              6
+            ],
+            "ledNodeIds": []
+          },
+          {
+            "id": 2,
+            "name": "FULL ADDER",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 40,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A"
+              },
+              {
+                "id": 2,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 112,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B"
+              },
+              {
+                "id": 3,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "titleText": "C IN"
+              },
+              {
+                "id": 4,
+                "type": "IC",
+                "x": 204,
+                "y": 56,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 1
+              },
+              {
+                "id": 5,
+                "type": "IC",
+                "x": 468,
+                "y": 116,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 1
+              },
+              {
+                "id": 6,
+                "type": "OR",
+                "x": 720,
+                "y": 128,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 7,
+                "type": "OUTPUT",
+                "x": 900,
+                "y": 88,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "SUM"
+              },
+              {
+                "id": 8,
+                "type": "OUTPUT",
+                "x": 900,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "C OUT"
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 4,
+                "fromPortId": "1:out:0",
+                "toPortId": "4:in:0"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 4,
+                "fromPortId": "2:out:0",
+                "toPortId": "4:in:1"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 5,
+                "fromPortId": "4:out:0",
+                "toPortId": "5:in:0"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 5,
+                "fromPortId": "3:out:0",
+                "toPortId": "5:in:1"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 7,
+                "fromPortId": "5:out:0",
+                "toPortId": "7:in:0"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 6,
+                "fromPortId": "4:out:1",
+                "toPortId": "6:in:a"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 6,
+                "fromPortId": "5:out:1",
+                "toPortId": "6:in:b"
+              },
+              {
+                "fromNodeId": 6,
+                "toNodeId": 8,
+                "fromPortId": "6:out:2",
+                "toPortId": "8:in:0"
+              }
+            ],
+            "inputNodeIds": [
+              1,
+              2,
+              3
+            ],
+            "outputNodeIds": [
+              7,
+              8
+            ],
+            "ledNodeIds": [],
+            "compactLayout": {
+              "nodeWidth": 188,
+              "bodyHeight": 176,
+              "portPitch": 16
+            }
+          },
+          {
+            "id": 3,
+            "name": "4-BIT ADDER",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 56,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A0"
+              },
+              {
+                "id": 2,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 128,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A1"
+              },
+              {
+                "id": 3,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 200,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A2"
+              },
+              {
+                "id": 4,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 272,
+                "value": false,
+                "rotation": 0,
+                "titleText": "A3"
+              },
+              {
+                "id": 5,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 392,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B0"
+              },
+              {
+                "id": 6,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 464,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B1"
+              },
+              {
+                "id": 7,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 536,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B2"
+              },
+              {
+                "id": 8,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 608,
+                "value": false,
+                "rotation": 0,
+                "titleText": "B3"
+              },
+              {
+                "id": 9,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 704,
+                "value": false,
+                "rotation": 0,
+                "titleText": "C IN"
+              },
+              {
+                "id": 10,
+                "type": "IC",
+                "x": 264,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 2
+              },
+              {
+                "id": 11,
+                "type": "IC",
+                "x": 528,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 2
+              },
+              {
+                "id": 12,
+                "type": "IC",
+                "x": 792,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 2
+              },
+              {
+                "id": 13,
+                "type": "IC",
+                "x": 1056,
+                "y": 184,
+                "value": false,
+                "rotation": 0,
+                "icDefId": 2
+              },
+              {
+                "id": 14,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 72,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "S0"
+              },
+              {
+                "id": 15,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 168,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "S1"
+              },
+              {
+                "id": 16,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 264,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "S2"
+              },
+              {
+                "id": 17,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 360,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "S3"
+              },
+              {
+                "id": 18,
+                "type": "OUTPUT",
+                "x": 1416,
+                "y": 504,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "C OUT"
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 10,
+                "fromPortId": "1:out:0",
+                "toPortId": "10:in:0"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 10,
+                "fromPortId": "5:out:0",
+                "toPortId": "10:in:1"
+              },
+              {
+                "fromNodeId": 10,
+                "toNodeId": 14,
+                "fromPortId": "10:out:0",
+                "toPortId": "14:in:0"
+              },
+              {
+                "fromNodeId": 9,
+                "toNodeId": 10,
+                "fromPortId": "9:out:0",
+                "toPortId": "10:in:2"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 11,
+                "fromPortId": "2:out:0",
+                "toPortId": "11:in:0"
+              },
+              {
+                "fromNodeId": 6,
+                "toNodeId": 11,
+                "fromPortId": "6:out:0",
+                "toPortId": "11:in:1"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 15,
+                "fromPortId": "11:out:0",
+                "toPortId": "15:in:0"
+              },
+              {
+                "fromNodeId": 10,
+                "toNodeId": 11,
+                "fromPortId": "10:out:1",
+                "toPortId": "11:in:2"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 12,
+                "fromPortId": "3:out:0",
+                "toPortId": "12:in:0"
+              },
+              {
+                "fromNodeId": 7,
+                "toNodeId": 12,
+                "fromPortId": "7:out:0",
+                "toPortId": "12:in:1"
+              },
+              {
+                "fromNodeId": 12,
+                "toNodeId": 16,
+                "fromPortId": "12:out:0",
+                "toPortId": "16:in:0"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 12,
+                "fromPortId": "11:out:1",
+                "toPortId": "12:in:2"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 13,
+                "fromPortId": "4:out:0",
+                "toPortId": "13:in:0"
+              },
+              {
+                "fromNodeId": 8,
+                "toNodeId": 13,
+                "fromPortId": "8:out:0",
+                "toPortId": "13:in:1"
+              },
+              {
+                "fromNodeId": 13,
+                "toNodeId": 17,
+                "fromPortId": "13:out:0",
+                "toPortId": "17:in:0"
+              },
+              {
+                "fromNodeId": 12,
+                "toNodeId": 13,
+                "fromPortId": "12:out:1",
+                "toPortId": "13:in:2"
+              },
+              {
+                "fromNodeId": 13,
+                "toNodeId": 18,
+                "fromPortId": "13:out:1",
+                "toPortId": "18:in:0"
+              }
+            ],
+            "inputNodeIds": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "outputNodeIds": [
+              14,
+              15,
+              16,
+              17,
+              18
+            ],
+            "ledNodeIds": [],
+            "compactLayout": {
+              "nodeWidth": 220,
+              "bodyHeight": 232,
+              "portPitch": 14
+            }
+          }
+        ],
+        "nextIds": {
+          "nextNodeId": 2,
+          "nextWireId": 1,
+          "nextICId": 4,
+          "nextNoteId": 1
+        }
+      },
+      "createdAt": 1775390400002
+    },
+    {
+      "id": 4,
+      "key": "builtin-toolbox-clock-divider",
+      "ownerId": 2,
+      "ownerGoogleSub": "builtin-library",
+      "name": "Clock Divider",
+      "description": "Splits one clock into slower binary steps.",
+      "data": {
+        "version": 1,
+        "nodes": [
+          {
+            "id": 1,
+            "type": "IC",
+            "x": 96,
+            "y": 96,
+            "value": false,
+            "rotation": 0,
+            "icDefId": 4
+          }
+        ],
+        "notes": [],
+        "wires": [],
+        "icDefinitions": [
+          {
+            "id": 4,
+            "name": "CLOCK DIVIDER",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "SWITCH",
+                "x": 24,
+                "y": 48,
+                "value": false,
+                "rotation": 0,
+                "titleText": "CLK"
+              },
+              {
+                "id": 2,
+                "type": "DFF",
+                "x": 264,
+                "y": 108,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 3,
+                "type": "DFF",
+                "x": 432,
+                "y": 156,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 4,
+                "type": "DFF",
+                "x": 600,
+                "y": 204,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 5,
+                "type": "DFF",
+                "x": 768,
+                "y": 252,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 6,
+                "type": "OUTPUT",
+                "x": 1128,
+                "y": 72,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "Q0"
+              },
+              {
+                "id": 7,
+                "type": "OUTPUT",
+                "x": 1128,
+                "y": 156,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "Q1"
+              },
+              {
+                "id": 8,
+                "type": "OUTPUT",
+                "x": 1128,
+                "y": 240,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "Q2"
+              },
+              {
+                "id": 9,
+                "type": "OUTPUT",
+                "x": 1128,
+                "y": 324,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "Q3"
+              },
+              {
+                "id": 10,
+                "type": "OUTPUT",
+                "x": 1128,
+                "y": 408,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "SLOW"
+              },
+              {
+                "id": 11,
+                "type": "GUIDE",
+                "x": 168,
+                "y": 180,
+                "value": false,
+                "rotation": 0,
+                "guideLength": 5
+              },
+              {
+                "id": 12,
+                "type": "GUIDE",
+                "x": 168,
+                "y": 348,
+                "value": false,
+                "rotation": 0,
+                "guideLength": 5
+              },
+              {
+                "id": 13,
+                "type": "NOT",
+                "x": 240,
+                "y": 48,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 14,
+                "type": "NOT",
+                "x": 408,
+                "y": 48,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 15,
+                "type": "NOT",
+                "x": 576,
+                "y": 48,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 16,
+                "type": "NOT",
+                "x": 744,
+                "y": 48,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 17,
+                "type": "XOR",
+                "x": 504,
+                "y": 288,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 18,
+                "type": "AND",
+                "x": 480,
+                "y": 432,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 19,
+                "type": "XOR",
+                "x": 696,
+                "y": 384,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 20,
+                "type": "AND",
+                "x": 456,
+                "y": 528,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 21,
+                "type": "AND",
+                "x": 648,
+                "y": 576,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 22,
+                "type": "AND",
+                "x": 732,
+                "y": 576,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 23,
+                "type": "XOR",
+                "x": 888,
+                "y": 528,
+                "value": false,
+                "rotation": 0
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 11,
+                "fromPortId": "1:out:0",
+                "toPortId": "11:in:0"
+              },
+              {
+                "fromNodeId": 1,
+                "toNodeId": 12,
+                "fromPortId": "1:out:0",
+                "toPortId": "12:in:0"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 13,
+                "fromPortId": "2:out:q",
+                "toPortId": "13:in:0"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 14,
+                "fromPortId": "3:out:q",
+                "toPortId": "14:in:0"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 15,
+                "fromPortId": "4:out:q",
+                "toPortId": "15:in:0"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 16,
+                "fromPortId": "5:out:q",
+                "toPortId": "16:in:0"
+              },
+              {
+                "fromNodeId": 13,
+                "toNodeId": 2,
+                "fromPortId": "13:out:1",
+                "toPortId": "2:in:d"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 2,
+                "fromPortId": "11:out:0",
+                "toPortId": "2:in:clk"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 17,
+                "fromPortId": "3:out:q",
+                "toPortId": "17:in:a"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 17,
+                "fromPortId": "2:out:q",
+                "toPortId": "17:in:b"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 18,
+                "fromPortId": "2:out:q",
+                "toPortId": "18:in:a"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 18,
+                "fromPortId": "3:out:q",
+                "toPortId": "18:in:b"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 19,
+                "fromPortId": "4:out:q",
+                "toPortId": "19:in:a"
+              },
+              {
+                "fromNodeId": 18,
+                "toNodeId": 19,
+                "fromPortId": "18:out:2",
+                "toPortId": "19:in:b"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 20,
+                "fromPortId": "2:out:q",
+                "toPortId": "20:in:a"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 20,
+                "fromPortId": "3:out:q",
+                "toPortId": "20:in:b"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 21,
+                "fromPortId": "2:out:q",
+                "toPortId": "21:in:a"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 21,
+                "fromPortId": "3:out:q",
+                "toPortId": "21:in:b"
+              },
+              {
+                "fromNodeId": 21,
+                "toNodeId": 22,
+                "fromPortId": "21:out:2",
+                "toPortId": "22:in:a"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 22,
+                "fromPortId": "4:out:q",
+                "toPortId": "22:in:b"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 23,
+                "fromPortId": "5:out:q",
+                "toPortId": "23:in:a"
+              },
+              {
+                "fromNodeId": 22,
+                "toNodeId": 23,
+                "fromPortId": "22:out:2",
+                "toPortId": "23:in:b"
+              },
+              {
+                "fromNodeId": 17,
+                "toNodeId": 3,
+                "fromPortId": "17:out:2",
+                "toPortId": "3:in:d"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 3,
+                "fromPortId": "11:out:1",
+                "toPortId": "3:in:clk"
+              },
+              {
+                "fromNodeId": 19,
+                "toNodeId": 4,
+                "fromPortId": "19:out:2",
+                "toPortId": "4:in:d"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 4,
+                "fromPortId": "11:out:2",
+                "toPortId": "4:in:clk"
+              },
+              {
+                "fromNodeId": 23,
+                "toNodeId": 5,
+                "fromPortId": "23:out:2",
+                "toPortId": "5:in:d"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 5,
+                "fromPortId": "11:out:3",
+                "toPortId": "5:in:clk"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 6,
+                "fromPortId": "2:out:q",
+                "toPortId": "6:in:0"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 7,
+                "fromPortId": "3:out:q",
+                "toPortId": "7:in:0"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 8,
+                "fromPortId": "4:out:q",
+                "toPortId": "8:in:0"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 9,
+                "fromPortId": "5:out:q",
+                "toPortId": "9:in:0"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 10,
+                "fromPortId": "5:out:q",
+                "toPortId": "10:in:0"
+              }
+            ],
+            "inputNodeIds": [
+              1
+            ],
+            "outputNodeIds": [
+              6,
+              7,
+              8,
+              9,
+              10
+            ],
+            "ledNodeIds": [],
+            "compactLayout": {
+              "nodeWidth": 200,
+              "bodyHeight": 196,
+              "portPitch": 14
+            }
+          }
+        ],
+        "nextIds": {
+          "nextNodeId": 2,
+          "nextWireId": 1,
+          "nextICId": 5,
+          "nextNoteId": 1
+        }
+      },
+      "createdAt": 1775390400003
+    },
+    {
+      "id": 5,
+      "key": "builtin-toolbox-random-pulse",
+      "ownerId": 2,
+      "ownerGoogleSub": "builtin-library",
+      "name": "Random Pulse",
+      "description": "A small clocked LFSR that outputs pseudo-random pulses.",
+      "data": {
+        "version": 1,
+        "nodes": [
+          {
+            "id": 1,
+            "type": "IC",
+            "x": 96,
+            "y": 96,
+            "value": false,
+            "rotation": 0,
+            "icDefId": 5
+          }
+        ],
+        "notes": [],
+        "wires": [],
+        "icDefinitions": [
+          {
+            "id": 5,
+            "name": "RANDOM PULSE",
+            "nodes": [
+              {
+                "id": 1,
+                "type": "CLOCK",
+                "x": 24,
+                "y": 120,
+                "value": false,
+                "rotation": 0,
+                "clockDelayMs": 180,
+                "titleText": "STEP"
+              },
+              {
+                "id": 2,
+                "type": "DFF",
+                "x": 324,
+                "y": 72,
+                "value": true,
+                "rotation": 0
+              },
+              {
+                "id": 3,
+                "type": "DFF",
+                "x": 504,
+                "y": 132,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 4,
+                "type": "DFF",
+                "x": 684,
+                "y": 192,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 5,
+                "type": "DFF",
+                "x": 864,
+                "y": 252,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 6,
+                "type": "OUTPUT",
+                "x": 1236,
+                "y": 72,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "PULSE"
+              },
+              {
+                "id": 7,
+                "type": "OUTPUT",
+                "x": 1236,
+                "y": 168,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "Q0"
+              },
+              {
+                "id": 8,
+                "type": "OUTPUT",
+                "x": 1236,
+                "y": 264,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "Q1"
+              },
+              {
+                "id": 9,
+                "type": "OUTPUT",
+                "x": 1236,
+                "y": 360,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "Q2"
+              },
+              {
+                "id": 10,
+                "type": "OUTPUT",
+                "x": 1236,
+                "y": 456,
+                "value": false,
+                "rotation": 0,
+                "lightColor": "#27ae60",
+                "titleText": "Q3"
+              },
+              {
+                "id": 11,
+                "type": "GUIDE",
+                "x": 204,
+                "y": 276,
+                "value": false,
+                "rotation": 0,
+                "guideLength": 5
+              },
+              {
+                "id": 12,
+                "type": "XOR",
+                "x": 924,
+                "y": 180,
+                "value": false,
+                "rotation": 0
+              },
+              {
+                "id": 13,
+                "type": "XOR",
+                "x": 1068,
+                "y": 72,
+                "value": false,
+                "rotation": 0
+              }
+            ],
+            "wires": [
+              {
+                "fromNodeId": 1,
+                "toNodeId": 11,
+                "fromPortId": "1:out:0",
+                "toPortId": "11:in:0"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 12,
+                "fromPortId": "5:out:q",
+                "toPortId": "12:in:a"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 12,
+                "fromPortId": "4:out:q",
+                "toPortId": "12:in:b"
+              },
+              {
+                "fromNodeId": 12,
+                "toNodeId": 2,
+                "fromPortId": "12:out:2",
+                "toPortId": "2:in:d"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 2,
+                "fromPortId": "11:out:0",
+                "toPortId": "2:in:clk"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 3,
+                "fromPortId": "2:out:q",
+                "toPortId": "3:in:d"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 3,
+                "fromPortId": "11:out:1",
+                "toPortId": "3:in:clk"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 4,
+                "fromPortId": "3:out:q",
+                "toPortId": "4:in:d"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 4,
+                "fromPortId": "11:out:2",
+                "toPortId": "4:in:clk"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 5,
+                "fromPortId": "4:out:q",
+                "toPortId": "5:in:d"
+              },
+              {
+                "fromNodeId": 11,
+                "toNodeId": 5,
+                "fromPortId": "11:out:3",
+                "toPortId": "5:in:clk"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 13,
+                "fromPortId": "2:out:q",
+                "toPortId": "13:in:a"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 13,
+                "fromPortId": "5:out:q",
+                "toPortId": "13:in:b"
+              },
+              {
+                "fromNodeId": 13,
+                "toNodeId": 6,
+                "fromPortId": "13:out:2",
+                "toPortId": "6:in:0"
+              },
+              {
+                "fromNodeId": 2,
+                "toNodeId": 7,
+                "fromPortId": "2:out:q",
+                "toPortId": "7:in:0"
+              },
+              {
+                "fromNodeId": 3,
+                "toNodeId": 8,
+                "fromPortId": "3:out:q",
+                "toPortId": "8:in:0"
+              },
+              {
+                "fromNodeId": 4,
+                "toNodeId": 9,
+                "fromPortId": "4:out:q",
+                "toPortId": "9:in:0"
+              },
+              {
+                "fromNodeId": 5,
+                "toNodeId": 10,
+                "fromPortId": "5:out:q",
+                "toPortId": "10:in:0"
+              }
+            ],
+            "inputNodeIds": [],
+            "outputNodeIds": [
+              6,
+              7,
+              8,
+              9,
+              10
+            ],
+            "ledNodeIds": [],
+            "compactLayout": {
+              "nodeWidth": 212,
+              "bodyHeight": 176,
+              "portPitch": 14
+            }
+          }
+        ],
+        "nextIds": {
+          "nextNodeId": 2,
+          "nextWireId": 1,
+          "nextICId": 6,
+          "nextNoteId": 1
+        }
+      },
+      "createdAt": 1775390400004
+    }
+  ],
+  "workspaceDrafts": [],
+  "metadata": {
+    "schemaVersion": 2,
+    "appliedBundledSnapshotHashes": []
+  }
+}

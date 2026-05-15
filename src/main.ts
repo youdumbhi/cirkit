@@ -9,10 +9,12 @@ type NodeType =
   | "LED"
   | "SPEAKER"
   | "DISPLAY"
+  | "TOUCHSCREEN_DISPLAY"
   | "NUMBER_DISPLAY"
   | "GUIDE"
   | "CABLE"
   | "CLOCK"
+  | "TIMER"
   | "DFF"
   | "BUFFER"
   | "KEY"
@@ -37,6 +39,7 @@ interface NodeData {
   lightColor?: string;
   clockDelayMs?: number;
   bufferDelayMs?: number;
+  timerIntervalMs?: number;
   keyChar?: string; // single char, e.g. "a"
   keyMode?: "toggle" | "hold" | "pulse";
   speakerFrequencyHz?: number;
@@ -80,6 +83,7 @@ interface NoteData {
   width: number;
   height: number;
   text: string;
+  variant?: "banner";
 }
 
 interface ICCompactLayout {
@@ -117,6 +121,10 @@ const SPEAKER_INPUT_WEIGHTS = [1, 2, 4, 8] as const;
 const DEFAULT_DISPLAY_WIDTH = 4;
 const DEFAULT_DISPLAY_HEIGHT = 4;
 const MIN_DISPLAY_SIDE = 1;
+const DEFAULT_TIMER_INTERVAL_MS = 1000;
+const MIN_TIMER_INTERVAL_MS = 10;
+const MAX_TIMER_INTERVAL_MS = 60 * 60 * 1000;
+const TIMER_OUTPUT_BITS = 6;
 const NUMBER_DISPLAY_BITS_PER_DIGIT = 4;
 const DEFAULT_NUMBER_DISPLAY_DIGITS = 1;
 const MIN_NUMBER_DISPLAY_DIGITS = 1;
@@ -150,7 +158,7 @@ const DISPLAY_SCREEN_FRAME = 12;
 const DISPLAY_SECTION_GAP = 14;
 const TIC_TAC_TOE_BOARD_SIZE = 3;
 const WORKSPACE_BASE_WIDTH = 3200;
-const WORKSPACE_BASE_HEIGHT = 6200;
+const WORKSPACE_BASE_HEIGHT = 8000;
 const MIN_WORKSPACE_ZOOM = 0.35;
 const MAX_WORKSPACE_ZOOM = 2.5;
 
@@ -309,6 +317,11 @@ interface IcRuntimeState {
   dffLastClockInput: Map<number, boolean>;
   clockTimers: Map<number, number>;
   clockLastTickAt: Map<number, number>;
+  timerIntervals: Map<number, number>;
+  timerCounts: Map<number, number>;
+  timerRunning: Map<number, boolean>;
+  timerLastStartInput: Map<number, boolean>;
+  timerLastResetInput: Map<number, boolean>;
 }
 
 interface IcSpeakerState {
@@ -323,6 +336,11 @@ const clockLastTickAt = new Map<number, number>();
 const bufferLastInput = new Map<number, boolean>();
 const bufferTimeouts = new Map<number, Set<number>>();
 const dffLastClockInput = new Map<number, boolean>();
+const timerIntervals = new Map<number, number>();
+const timerCounts = new Map<number, number>();
+const timerRunning = new Map<number, boolean>();
+const timerLastStartInput = new Map<number, boolean>();
+const timerLastResetInput = new Map<number, boolean>();
 const speakerVoices = new Map<number, SpeakerVoice>();
 const icSpeakerVoices = new Map<string, SpeakerVoice>();
 const icRuntimeStates = new Map<string, IcRuntimeState>();
@@ -332,6 +350,7 @@ let pendingSignalRecomputeTimeout: number | null = null;
 let signalRecomputeEpoch = 0;
 
 let audioContext: AudioContext | null = null;
+const touchscreenActivePixels = new Map<number, Set<number>>();
 
 // panning
 let isPanning = false;
@@ -447,12 +466,32 @@ app.innerHTML = `
                 <div class="node-body"><div class="clock-icon"></div></div>
               </div>
             </button>
+            <button class="palette-item" data-node-type="TIMER">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">TIMER</span></div>
+                <div class="node-body"><div class="clock-icon"></div></div>
+              </div>
+            </button>
+            <button class="palette-item" data-node-type="BUFFER">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">BUFFER</span></div>
+                <div class="node-body"><div class="gate-shape gate-buffer"></div></div>
+              </div>
+            </button>
           </div>
         </section>
 
         <section class="palette-section">
           <div class="palette-section-title">Super Advanced</div>
           <div class="palette-section-grid">
+            <button class="palette-item" data-node-type="TOUCHSCREEN_DISPLAY">
+              <div class="palette-node">
+                <div class="node-header"><span class="node-title">TOUCH</span></div>
+                <div class="node-body">
+                  ${getPaletteDisplayIconMarkup()}
+                </div>
+              </div>
+            </button>
             <button class="palette-item" data-node-type="DFF">
               <div class="palette-node">
                 <div class="node-header"><span class="node-title">DFF</span></div>
@@ -471,12 +510,6 @@ app.innerHTML = `
         <section class="palette-section">
           <div class="palette-section-title">Logic Gates</div>
           <div class="palette-section-grid">
-            <button class="palette-item" data-node-type="BUFFER">
-              <div class="palette-node">
-                <div class="node-header"><span class="node-title">BUFFER</span></div>
-                <div class="node-body"><div class="gate-shape gate-buffer"></div></div>
-              </div>
-            </button>
             <button class="palette-item" data-node-type="AND">
               <div class="palette-node">
                 <div class="node-header"><span class="node-title">AND</span></div>
@@ -967,8 +1000,10 @@ const RENAMEABLE_NODE_TYPES = new Set<NodeType>([
   "LED",
   "SPEAKER",
   "DISPLAY",
+  "TOUCHSCREEN_DISPLAY",
   "NUMBER_DISPLAY",
   "CLOCK",
+  "TIMER",
 ]);
 
 function isRenameableNodeType(type: NodeType): boolean {
@@ -993,10 +1028,14 @@ function getDefaultNodeTitle(type: NodeType): string {
       return "SPEAKER";
     case "DISPLAY":
       return "DISPLAY";
+    case "TOUCHSCREEN_DISPLAY":
+      return "TOUCH";
     case "NUMBER_DISPLAY":
       return "NUMBER";
     case "CLOCK":
       return "CLOCK";
+    case "TIMER":
+      return "TIMER";
     default:
       return type;
   }
@@ -1009,8 +1048,7 @@ function getVisibleNodeTitle(node: Pick<NodeData, "type" | "titleText">): string
 
 function getNodeHeaderActionReserve(type: NodeType): number {
   let reserve = 0;
-  if (isRenameableNodeType(type)) reserve += 58;
-  if (type === "CLOCK" || type === "BUFFER") reserve += 50;
+  if (type === "CLOCK" || type === "BUFFER" || type === "TIMER") reserve += 50;
   return reserve;
 }
 
@@ -1018,8 +1056,12 @@ function getRenameableNodeWidth(node: Pick<NodeData, "type" | "titleText" | "bad
   const title = getVisibleNodeTitle(node);
   const actionReserve = getNodeHeaderActionReserve(node.type);
   const badgeReserve = node.badgeText ? Math.min(34, 12 + node.badgeText.length * 6) : 0;
-  const titleReserve = 48 + Math.max(0, title.length - 6) * 6;
-  return clamp(Math.max(120, titleReserve + actionReserve + badgeReserve), 120, 240);
+  const defaultTitle = getDefaultNodeTitle(node.type);
+  const titleReserve =
+    title === defaultTitle
+      ? 64 + Math.max(0, title.length - 6) * 4
+      : 54 + Math.max(0, title.length - 6) * 6;
+  return clamp(Math.max(120, titleReserve + actionReserve + badgeReserve), 120, 200);
 }
 
 function getIcNodeLayout(def?: ICDefinition): {
@@ -1105,6 +1147,10 @@ function getNodeLayoutSize(
     const layout = getDisplayLayout(node);
     return { w: layout.nodeWidth, h: layout.nodeHeight };
   }
+  if (node.type === "TOUCHSCREEN_DISPLAY") {
+    const layout = getTouchscreenDisplayLayout(node);
+    return { w: layout.nodeWidth, h: layout.nodeHeight };
+  }
   if (node.type === "SPEAKER") {
     const layout = getSpeakerLayout();
     return { w: layout.nodeWidth, h: layout.nodeHeight };
@@ -1112,6 +1158,9 @@ function getNodeLayoutSize(
   if (node.type === "NUMBER_DISPLAY") {
     const layout = getNumberDisplayLayout(node);
     return { w: layout.nodeWidth, h: layout.nodeHeight };
+  }
+  if (node.type === "TIMER") {
+    return { w: 172, h: 112 };
   }
   if (node.type === "GUIDE") {
     const layout = getGuideLayout(node);
@@ -1395,6 +1444,12 @@ interface DisplayLayout {
   screenOffsetY: number;
 }
 
+interface TouchscreenDisplayLayout extends DisplayLayout {
+  outputGridWidth: number;
+  outputGridHeight: number;
+  outputOffsetY: number;
+}
+
 interface NumberDisplayLayout {
   digits: number;
   inputCount: number;
@@ -1408,6 +1463,7 @@ interface NumberDisplayLayout {
   nodeWidth: number;
   nodeHeight: number;
   bodyHeight: number;
+  bodyPaddingBottom: number;
   digitPositions: { x: number; y: number }[];
   portPlacements: {
     index: number;
@@ -1454,6 +1510,28 @@ function getDisplayLayout(node: Pick<NodeData, "displayWidth" | "displayHeight">
   };
 }
 
+function getTouchscreenDisplayLayout(
+  node: Pick<NodeData, "displayWidth" | "displayHeight">
+): TouchscreenDisplayLayout {
+  const base = getDisplayLayout(node);
+  const outputGridWidth = base.inputGridWidth;
+  const outputGridHeight = base.inputGridHeight;
+  const contentWidth =
+    base.inputGridWidth +
+    DISPLAY_SECTION_GAP +
+    base.screenWidth +
+    DISPLAY_SECTION_GAP +
+    outputGridWidth;
+  return {
+    ...base,
+    outputGridWidth,
+    outputGridHeight,
+    outputOffsetY: base.inputOffsetY,
+    contentWidth,
+    nodeWidth: Math.max(216, DISPLAY_BODY_PADDING_X * 2 + contentWidth),
+  };
+}
+
 function getNumberDisplayDigits(node: Pick<NodeData, "numberDigits">): number {
   const raw = Math.round(node.numberDigits ?? DEFAULT_NUMBER_DISPLAY_DIGITS);
   return clamp(raw, MIN_NUMBER_DISPLAY_DIGITS, MAX_NUMBER_DISPLAY_DIGITS);
@@ -1464,10 +1542,8 @@ function getNumberDisplayInputCount(node: Pick<NodeData, "numberDigits">): numbe
 }
 
 function getNumberDisplayBitWeight(_digits: number, index: number): number {
-  const digitIndex = Math.floor(index / NUMBER_DISPLAY_BITS_PER_DIGIT);
   const localBitIndex = index % NUMBER_DISPLAY_BITS_PER_DIGIT;
-  const power = digitIndex * NUMBER_DISPLAY_BITS_PER_DIGIT + localBitIndex;
-  return 2 ** power;
+  return 2 ** localBitIndex;
 }
 
 function formatNumberDisplayBitWeight(weight: number): string {
@@ -1492,9 +1568,8 @@ function getNumberDisplayLayout(
   const groupWidth = 72;
   const groupGap = 8;
   const bodyHeight = 76;
+  const bodyPaddingBottom = 18;
   const bodyPaddingX = 12;
-  const upperY = 18;
-  const lowerY = bodyHeight - 18;
   const digitY = Math.round((bodyHeight - digitHeight) / 2);
   const digitX = Math.round((groupWidth - digitWidth) / 2);
   const screenWidth = digits * groupWidth + Math.max(0, digits - 1) * groupGap;
@@ -1508,37 +1583,39 @@ function getNumberDisplayLayout(
   const portPlacements = Array.from({ length: digits }, (_, digitIndex) => {
     const groupLeft = bodyPaddingX + digitIndex * (groupWidth + groupGap);
     const baseIndex = digitIndex * NUMBER_DISPLAY_BITS_PER_DIGIT;
+    const bottomY = bodyHeight + bodyPaddingBottom;
+    const step = groupWidth / 5;
     return [
       {
         index: baseIndex + 0,
-        x: groupLeft + 18,
-        y: upperY,
-        labelX: groupLeft + 18,
-        labelY: upperY - 9,
-        labelPosition: "above" as const,
+        x: groupLeft + step,
+        y: bottomY,
+        labelX: groupLeft + step,
+        labelY: bottomY + 8,
+        labelPosition: "below" as const,
       },
       {
         index: baseIndex + 1,
-        x: groupLeft + groupWidth - 18,
-        y: upperY,
-        labelX: groupLeft + groupWidth - 18,
-        labelY: upperY - 9,
-        labelPosition: "above" as const,
+        x: groupLeft + step * 2,
+        y: bottomY,
+        labelX: groupLeft + step * 2,
+        labelY: bottomY + 8,
+        labelPosition: "below" as const,
       },
       {
         index: baseIndex + 2,
-        x: groupLeft + 18,
-        y: lowerY,
-        labelX: groupLeft + 18,
-        labelY: lowerY + 9,
+        x: groupLeft + step * 3,
+        y: bottomY,
+        labelX: groupLeft + step * 3,
+        labelY: bottomY + 8,
         labelPosition: "below" as const,
       },
       {
         index: baseIndex + 3,
-        x: groupLeft + groupWidth - 18,
-        y: lowerY,
-        labelX: groupLeft + groupWidth - 18,
-        labelY: lowerY + 9,
+        x: groupLeft + step * 4,
+        y: bottomY,
+        labelX: groupLeft + step * 4,
+        labelY: bottomY + 8,
         labelPosition: "below" as const,
       },
     ].map((placement) => {
@@ -1562,8 +1639,9 @@ function getNumberDisplayLayout(
     screenWidth,
     screenHeight,
     nodeWidth: Math.max(108, screenWidth + bodyPaddingX * 2),
-    nodeHeight: DISPLAY_HEADER_HEIGHT + bodyHeight,
+    nodeHeight: DISPLAY_HEADER_HEIGHT + bodyHeight + bodyPaddingBottom,
     bodyHeight,
+    bodyPaddingBottom,
     digitPositions,
     portPlacements,
   };
@@ -1815,6 +1893,21 @@ function getDisplayPortId(nodeId: number, index: number): string {
   return `${nodeId}:in:${index}`;
 }
 
+function getTouchscreenDisplayOutputPortId(nodeId: number, index: number): string {
+  return `${nodeId}:out:${index}`;
+}
+
+function getTimerOutputPortId(nodeId: number, index: number): string {
+  return `${nodeId}:out:${index}`;
+}
+
+function getTimerOutputTopPercent(index: number, bitCount = TIMER_OUTPUT_BITS): number {
+  if (bitCount <= 1) return 50;
+  const start = 14;
+  const end = 86;
+  return start + ((end - start) * index) / (bitCount - 1);
+}
+
 function getNumberDisplayPortId(nodeId: number, index: number): string {
   return `${nodeId}:in:${index}`;
 }
@@ -1840,6 +1933,65 @@ function getDisplayPixelCoordinates(
       row * (DISPLAY_PORT_SIZE + DISPLAY_PORT_GAP) +
       DISPLAY_PORT_SIZE / 2,
   };
+}
+
+function getTouchscreenDisplayOutputCoordinates(
+  node: Pick<NodeData, "x" | "y" | "displayWidth" | "displayHeight">,
+  index: number
+): { x: number; y: number } {
+  const layout = getTouchscreenDisplayLayout(node);
+  const col = index % layout.width;
+  const row = Math.floor(index / layout.width);
+  return {
+    x:
+      node.x +
+      DISPLAY_BODY_PADDING_X +
+      layout.inputGridWidth +
+      DISPLAY_SECTION_GAP +
+      layout.screenWidth +
+      DISPLAY_SECTION_GAP +
+      col * (DISPLAY_PORT_SIZE + DISPLAY_PORT_GAP) +
+      DISPLAY_PORT_SIZE / 2,
+    y:
+      node.y +
+      DISPLAY_HEADER_HEIGHT +
+      DISPLAY_BODY_PADDING_Y +
+      layout.outputOffsetY +
+      row * (DISPLAY_PORT_SIZE + DISPLAY_PORT_GAP) +
+      DISPLAY_PORT_SIZE / 2,
+  };
+}
+
+function getTimerIntervalMs(node: Pick<NodeData, "timerIntervalMs">): number {
+  const raw = Math.round(node.timerIntervalMs ?? DEFAULT_TIMER_INTERVAL_MS);
+  return clamp(raw, MIN_TIMER_INTERVAL_MS, MAX_TIMER_INTERVAL_MS);
+}
+
+function getTimerBinaryOutputs(count: number): boolean[] {
+  return Array.from({ length: TIMER_OUTPUT_BITS }, (_, index) => !!(count & (1 << index)));
+}
+
+function ensureWorkspaceTimerInterval(node: NodeData) {
+  if (timerIntervals.has(node.id)) return;
+  const timerId = window.setInterval(() => {
+    if (!timerRunning.get(node.id)) return;
+    timerCounts.set(node.id, (timerCounts.get(node.id) ?? 0) + 1);
+    scheduleSignalRecompute();
+  }, getTimerIntervalMs(node));
+  timerIntervals.set(node.id, timerId);
+}
+
+function setTouchscreenPixelActive(nodeId: number, pixelIndex: number, active: boolean) {
+  let activeSet = touchscreenActivePixels.get(nodeId);
+  if (!activeSet) {
+    activeSet = new Set<number>();
+    touchscreenActivePixels.set(nodeId, activeSet);
+  }
+  const changed = active ? !activeSet.has(pixelIndex) : activeSet.has(pixelIndex);
+  if (active) activeSet.add(pixelIndex);
+  else activeSet.delete(pixelIndex);
+  if (activeSet.size === 0) touchscreenActivePixels.delete(nodeId);
+  if (changed) scheduleSignalRecompute();
 }
 
 function ensureAudioContext(): AudioContext | null {
@@ -1948,6 +2100,7 @@ function teardownIcRuntimeState(runtimeKey: string) {
   runtime.bufferTimeouts.forEach((pending) => {
     pending.forEach((timeoutId) => clearTimeout(timeoutId));
   });
+  runtime.timerIntervals.forEach((timerId) => clearInterval(timerId));
   icRuntimeStates.delete(runtimeKey);
 }
 
@@ -2060,6 +2213,11 @@ function ensureIcRuntimeState(def: ICDefinition, runtimeKey: string): IcRuntimeS
     dffLastClockInput: new Map<number, boolean>(),
     clockTimers: new Map<number, number>(),
     clockLastTickAt: new Map<number, number>(),
+    timerIntervals: new Map<number, number>(),
+    timerCounts: new Map<number, number>(),
+    timerRunning: new Map<number, boolean>(),
+    timerLastStartInput: new Map<number, boolean>(),
+    timerLastResetInput: new Map<number, boolean>(),
   };
 
   def.nodes.forEach((sourceNode) => {
@@ -2088,6 +2246,11 @@ function ensureIcRuntimeState(def: ICDefinition, runtimeKey: string): IcRuntimeS
       runtime.bufferLastInput.set(clonedNode.id, false);
     } else if (clonedNode.type === "DFF") {
       runtime.dffLastClockInput.set(clonedNode.id, false);
+    } else if (clonedNode.type === "TIMER") {
+      runtime.timerCounts.set(clonedNode.id, 0);
+      runtime.timerRunning.set(clonedNode.id, false);
+      runtime.timerLastStartInput.set(clonedNode.id, false);
+      runtime.timerLastResetInput.set(clonedNode.id, false);
     }
   });
 
@@ -2147,15 +2310,16 @@ function rerenderNode(node: NodeData) {
 }
 
 function pruneDisplayWires(node: NodeData) {
-  if (node.type !== "DISPLAY") return;
+  if (node.type !== "DISPLAY" && node.type !== "TOUCHSCREEN_DISPLAY") return;
   const maxInputs = getDisplayLayout(node).pixelCount;
   for (let i = wires.length - 1; i >= 0; i--) {
     const wire = wires[i];
-    if (wire.toNodeId !== node.id) continue;
-    const [, role, suffix] = wire.toPortId.split(":");
+    if (wire.toNodeId !== node.id && wire.fromNodeId !== node.id) continue;
+    const portId = wire.toNodeId === node.id ? wire.toPortId : wire.fromPortId;
+    const [, role, suffix] = portId.split(":");
     const index = Number(suffix);
     const keep =
-      role === "in" &&
+      (role === "in" || role === "out") &&
       Number.isFinite(index) &&
       index >= 0 &&
       index < maxInputs;
@@ -2260,6 +2424,12 @@ function initializeNodeDynamicBehavior(node: NodeData) {
     if (!dffLastClockInput.has(node.id)) {
       dffLastClockInput.set(node.id, false);
     }
+  } else if (node.type === "TIMER") {
+    if (!node.timerIntervalMs) node.timerIntervalMs = DEFAULT_TIMER_INTERVAL_MS;
+    if (!timerCounts.has(node.id)) timerCounts.set(node.id, 0);
+    if (!timerRunning.has(node.id)) timerRunning.set(node.id, false);
+    if (!timerLastStartInput.has(node.id)) timerLastStartInput.set(node.id, false);
+    if (!timerLastResetInput.has(node.id)) timerLastResetInput.set(node.id, false);
   }
 }
 
@@ -2280,6 +2450,16 @@ function teardownNodeDynamicBehavior(nodeId: number) {
   clearBufferTimeouts(nodeId);
   bufferLastInput.delete(nodeId);
   dffLastClockInput.delete(nodeId);
+  const timerId = timerIntervals.get(nodeId);
+  if (timerId != null) {
+    clearInterval(timerId);
+    timerIntervals.delete(nodeId);
+  }
+  timerCounts.delete(nodeId);
+  timerRunning.delete(nodeId);
+  timerLastStartInput.delete(nodeId);
+  timerLastResetInput.delete(nodeId);
+  touchscreenActivePixels.delete(nodeId);
   stopSpeakerVoice(nodeId);
 }
 
@@ -2302,6 +2482,9 @@ function createNode(type: NodeType, x: number, y: number): NodeData {
   if (type === "CLOCK") {
     node.clockDelayMs = 100;
   }
+  if (type === "TIMER") {
+    node.timerIntervalMs = DEFAULT_TIMER_INTERVAL_MS;
+  }
   if (type === "DFF") {
     node.value = false;
   }
@@ -2316,6 +2499,10 @@ function createNode(type: NodeType, x: number, y: number): NodeData {
     node.speakerFrequencyHz = DEFAULT_SPEAKER_FREQUENCY_HZ;
   }
   if (type === "DISPLAY") {
+    node.displayWidth = DEFAULT_DISPLAY_WIDTH;
+    node.displayHeight = DEFAULT_DISPLAY_HEIGHT;
+  }
+  if (type === "TOUCHSCREEN_DISPLAY") {
     node.displayWidth = DEFAULT_DISPLAY_WIDTH;
     node.displayHeight = DEFAULT_DISPLAY_HEIGHT;
   }
@@ -2470,6 +2657,7 @@ function renderNote(note: NoteData) {
     workspace.appendChild(el);
   }
 
+  el.classList.toggle("workspace-note-banner", note.variant === "banner");
   applyNoteLayout(note, el);
   const textarea = el.querySelector<HTMLTextAreaElement>(".workspace-note-text");
   if (textarea && document.activeElement !== textarea && textarea.value !== note.text) {
@@ -3501,7 +3689,6 @@ function renderNode(node: NodeData) {
       const isCompactIc = icLayout.nodeWidth < 120;
       const renderWidth = icLayout.nodeWidth;
       const renderBodyHeight = icLayout.bodyHeight;
-      const useEmptyPreviewShell = shouldUseStaticIcPreview(def);
       el.style.width = `${renderWidth}px`;
       if (isCompactIc) {
         el.classList.add("node-ic-compact");
@@ -3511,9 +3698,6 @@ function renderNode(node: NodeData) {
         <div class="node-body ic-body${isCompactIc ? " ic-body-compact" : ""}" style="height:${renderBodyHeight}px">
           <div class="ic-chip-namebar">
             <span class="ic-chip-name">${escapeHtml(name)}</span>
-          </div>
-          <div class="ic-preview-shell${isCompactIc ? " ic-preview-shell-compact" : ""}${useEmptyPreviewShell ? " ic-preview-shell-empty" : ""}">
-            <div class="ic-preview-canvas"></div>
           </div>
         </div>
       `;
@@ -3677,24 +3861,32 @@ function renderNode(node: NodeData) {
             </div>
           </div>
         `;
-      } else if (node.type === "DISPLAY") {
-        const layout = getDisplayLayout(node);
-        el.className = "node node-display";
+      } else if (node.type === "DISPLAY" || node.type === "TOUCHSCREEN_DISPLAY") {
+        const isTouch = node.type === "TOUCHSCREEN_DISPLAY";
+        const touchLayout = isTouch ? getTouchscreenDisplayLayout(node) : null;
+        const layout = touchLayout ?? getDisplayLayout(node);
+        el.className = `node node-display${isTouch ? " node-touchscreen-display" : ""}`;
         el.style.width = `${layout.nodeWidth}px`;
         el.innerHTML = `
           <div class="node-header">
-            <span class="node-title">DISPLAY</span>
+            <span class="node-title">${isTouch ? "TOUCH" : "DISPLAY"}</span>
             <span class="node-port-label">${layout.width}x${layout.height}</span>
           </div>
           <div class="node-body node-display-body">
+            ${isTouch ? '<div class="display-side-label display-side-label-input">INPUTS</div>' : ""}
+            ${isTouch ? '<div class="display-side-label display-side-label-output">OUTPUTS</div>' : ""}
             <div class="display-input-grid"></div>
             <div class="display-screen"></div>
+            ${isTouch ? '<div class="display-output-grid"></div>' : ""}
           </div>
         `;
 
         const body = el.querySelector<HTMLDivElement>(".node-display-body")!;
         const inputGrid = body.querySelector<HTMLDivElement>(".display-input-grid")!;
         const screen = body.querySelector<HTMLDivElement>(".display-screen")!;
+        const outputGrid = body.querySelector<HTMLDivElement>(".display-output-grid");
+        const inputLabel = body.querySelector<HTMLDivElement>(".display-side-label-input");
+        const outputLabel = body.querySelector<HTMLDivElement>(".display-side-label-output");
 
         body.style.height = `${layout.contentHeight + DISPLAY_BODY_PADDING_Y * 2}px`;
         body.style.setProperty(
@@ -3711,6 +3903,18 @@ function renderNode(node: NodeData) {
         screen.style.left = `${DISPLAY_BODY_PADDING_X + layout.inputGridWidth + DISPLAY_SECTION_GAP}px`;
         screen.style.top = `${DISPLAY_BODY_PADDING_Y + layout.screenOffsetY}px`;
         screen.style.gridTemplateColumns = `repeat(${layout.width}, ${DISPLAY_SCREEN_PIXEL_SIZE}px)`;
+        if (outputGrid && touchLayout) {
+          outputGrid.style.width = `${touchLayout.outputGridWidth}px`;
+          outputGrid.style.height = `${touchLayout.outputGridHeight}px`;
+          outputGrid.style.left = `${DISPLAY_BODY_PADDING_X + touchLayout.inputGridWidth + DISPLAY_SECTION_GAP + touchLayout.screenWidth + DISPLAY_SECTION_GAP}px`;
+          outputGrid.style.top = `${DISPLAY_BODY_PADDING_Y + touchLayout.outputOffsetY}px`;
+          if (outputLabel) {
+            outputLabel.style.left = `${DISPLAY_BODY_PADDING_X + touchLayout.inputGridWidth + DISPLAY_SECTION_GAP + touchLayout.screenWidth + DISPLAY_SECTION_GAP + touchLayout.outputGridWidth / 2}px`;
+          }
+        }
+        if (inputLabel) {
+          inputLabel.style.left = `${DISPLAY_BODY_PADDING_X + layout.inputGridWidth / 2}px`;
+        }
 
         for (let index = 0; index < layout.pixelCount; index++) {
           const port = document.createElement("div");
@@ -3733,8 +3937,65 @@ function renderNode(node: NodeData) {
           pixel.addEventListener("mouseleave", () => {
             setDisplayPortHover(getDisplayPortId(node.id, index), false);
           });
+          if (isTouch) {
+            let pressed = false;
+            const release = () => {
+              if (!pressed) return;
+              pressed = false;
+              setTouchscreenPixelActive(node.id, index, false);
+            };
+            pixel.addEventListener("mousedown", (ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              pressed = true;
+              setTouchscreenPixelActive(node.id, index, true);
+            });
+            pixel.addEventListener("mouseup", release);
+            pixel.addEventListener("mouseleave", release);
+          }
           screen.appendChild(pixel);
+
+          if (outputGrid && isTouch) {
+            const outPort = document.createElement("div");
+            outPort.className = "node-port node-port-output display-port touchscreen-output-port";
+            outPort.dataset.portId = getTouchscreenDisplayOutputPortId(node.id, index);
+            outPort.dataset.pixelIndex = String(index);
+            const col = index % layout.width;
+            const row = Math.floor(index / layout.width);
+            outPort.style.left = `${col * (DISPLAY_PORT_SIZE + DISPLAY_PORT_GAP)}px`;
+            outPort.style.top = `${row * (DISPLAY_PORT_SIZE + DISPLAY_PORT_GAP) + DISPLAY_PORT_SIZE / 2}px`;
+            outputGrid.appendChild(outPort);
+          }
         }
+      } else if (node.type === "TIMER") {
+        el.className = "node node-timer";
+        el.style.width = "172px";
+        el.innerHTML = `
+          <div class="node-header">
+            <span class="node-title">TIMER</span>
+            <span class="node-port-label">${TIMER_OUTPUT_BITS}-BIT</span>
+          </div>
+          <div class="node-body timer-body">
+            <div class="node-port node-port-input timer-input-start" data-port-id="${node.id}:in:0"></div>
+            <div class="node-port node-port-input timer-input-reset" data-port-id="${node.id}:in:1"></div>
+            <div class="timer-input-label timer-input-label-start">START</div>
+            <div class="timer-input-label timer-input-label-reset">RESET</div>
+            <div class="timer-readout">0</div>
+            ${Array.from({ length: TIMER_OUTPUT_BITS }, (_, index) => `
+              <div
+                class="node-port node-port-output timer-output-port"
+                data-port-id="${getTimerOutputPortId(node.id, index)}"
+                data-bit-index="${index}"
+                style="top:${getTimerOutputTopPercent(index)}%;"
+              ></div>
+              <div
+                class="timer-bit-label"
+                data-bit-index="${index}"
+                style="top:${getTimerOutputTopPercent(index)}%;"
+              >${2 ** index}</div>
+            `).join("")}
+          </div>
+        `;
       } else if (node.type === "NUMBER_DISPLAY") {
         const layout = getNumberDisplayLayout(node);
         el.className = "node node-number-display";
@@ -3751,7 +4012,7 @@ function renderNode(node: NodeData) {
 
         const body = el.querySelector<HTMLDivElement>(".number-display-body")!;
         const groups = body.querySelector<HTMLDivElement>(".number-display-groups")!;
-        body.style.height = `${layout.bodyHeight}px`;
+        body.style.height = `${layout.bodyHeight + layout.bodyPaddingBottom}px`;
         groups.style.width = `${layout.screenWidth}px`;
         groups.style.gridTemplateColumns = `repeat(${layout.digits}, ${layout.groupWidth}px)`;
         groups.style.columnGap = `${layout.groupGap}px`;
@@ -4005,6 +4266,7 @@ function renderNode(node: NodeData) {
       if (
         node.type !== "SPEAKER" &&
         node.type !== "DISPLAY" &&
+        node.type !== "TOUCHSCREEN_DISPLAY" &&
         node.type !== "NUMBER_DISPLAY" &&
         node.type !== "GUIDE" &&
         node.type !== "CABLE"
@@ -4029,8 +4291,9 @@ function renderNode(node: NodeData) {
 
       if (node.type === "SWITCH") setupSwitch(el, node);
       if (node.type === "BUTTON") setupButton(el, node);
-      if (isRenameableNodeType(node.type)) setupRenameButton(el, node);
-      if (node.type === "CLOCK" || node.type === "BUFFER") setupDelayButton(el, node);
+      if (node.type === "CLOCK" || node.type === "BUFFER" || node.type === "TIMER") {
+        setupDelayButton(el, node);
+      }
       if (node.type === "OUTPUT" || node.type === "LED") applyLightColor(node);
     }
   }
@@ -4208,7 +4471,7 @@ function setupPorts(el: HTMLDivElement, node: NodeData) {
     }
     portElements.set(portId, port);
 
-    if (node.type === "DISPLAY" && !isOutput) {
+    if ((node.type === "DISPLAY" || node.type === "TOUCHSCREEN_DISPLAY") && !isOutput) {
       port.addEventListener("mouseenter", () => setDisplayPortHover(portId, true));
       port.addEventListener("mouseleave", () => setDisplayPortHover(portId, false));
     }
@@ -4674,12 +4937,7 @@ function updateWirePath(
   x2: number,
   y2: number
 ) {
-  const dx = Math.abs(x2 - x1);
-  const controlOffset = Math.max(40, dx / 2);
-  const cx1 = x1 + controlOffset;
-  const cx2 = x2 - controlOffset;
-  const d = `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`;
-  pathEl.setAttribute("d", d);
+  pathEl.setAttribute("d", wirePathD(x1, y1, x2, y2));
 }
 
 function findPortElementById(portId: string): HTMLDivElement | null {
@@ -4794,7 +5052,13 @@ function getComputedPortSignal(
   nodeValues: Map<number, boolean>,
   portOutputs: Map<string, boolean>
 ): boolean {
-  if (node.type === "IC" || node.type === "GUIDE" || node.type === "CABLE") {
+  if (
+    node.type === "IC" ||
+    node.type === "GUIDE" ||
+    node.type === "CABLE" ||
+    node.type === "TOUCHSCREEN_DISPLAY" ||
+    node.type === "TIMER"
+  ) {
     return portOutputs.get(portId) ?? false;
   }
   return nodeValues.get(node.id) ?? false;
@@ -4815,7 +5079,13 @@ function didBooleanMapChange(
 }
 
 function getWorkspacePortSignal(node: NodeData, portId: string): boolean {
-  if (node.type === "IC" || node.type === "GUIDE" || node.type === "CABLE") {
+  if (
+    node.type === "IC" ||
+    node.type === "GUIDE" ||
+    node.type === "CABLE" ||
+    node.type === "TOUCHSCREEN_DISPLAY" ||
+    node.type === "TIMER"
+  ) {
     return derivedPortValues.get(portId) ?? false;
   }
   return node.value;
@@ -5027,6 +5297,10 @@ function simulateIC(
           newVal = incAny.get(n.id) ?? false;
           break;
         }
+        case "TOUCHSCREEN_DISPLAY": {
+          newVal = incAny.get(n.id) ?? false;
+          break;
+        }
         case "NUMBER_DISPLAY": {
           newVal = incAny.get(n.id) ?? false;
           break;
@@ -5117,6 +5391,45 @@ function simulateIC(
         }
         case "CLOCK": {
           newVal = localVals.get(n.id) ?? false;
+          break;
+        }
+        case "TIMER": {
+          if (!runtime || !runtimeKey) {
+            newVal = false;
+            break;
+          }
+          const startInput = incomingPortSignals.get(`${n.id}:in:0`) ?? false;
+          const resetInput = incomingPortSignals.get(`${n.id}:in:1`) ?? false;
+          const lastStart = runtime.timerLastStartInput.get(n.id) ?? false;
+          const lastReset = runtime.timerLastResetInput.get(n.id) ?? false;
+          if (resetInput && !lastReset) {
+            runtime.timerCounts.set(n.id, 0);
+            runtime.timerRunning.set(n.id, false);
+            const intervalId = runtime.timerIntervals.get(n.id);
+            if (intervalId != null) {
+              clearInterval(intervalId);
+              runtime.timerIntervals.delete(n.id);
+            }
+          }
+          if (startInput && !lastStart) {
+            runtime.timerRunning.set(n.id, true);
+            if (!runtime.timerIntervals.has(n.id)) {
+              const timerId = window.setInterval(() => {
+                const liveRuntime = icRuntimeStates.get(runtimeKey);
+                if (!liveRuntime || !liveRuntime.timerRunning.get(n.id)) return;
+                liveRuntime.timerCounts.set(n.id, (liveRuntime.timerCounts.get(n.id) ?? 0) + 1);
+                scheduleSignalRecompute();
+              }, getTimerIntervalMs(n));
+              runtime.timerIntervals.set(n.id, timerId);
+            }
+          }
+          runtime.timerLastStartInput.set(n.id, startInput);
+          runtime.timerLastResetInput.set(n.id, resetInput);
+          const count = runtime.timerCounts.get(n.id) ?? 0;
+          getTimerBinaryOutputs(count).forEach((bit, index) => {
+            nextDerivedOutputs.set(getTimerOutputPortId(n.id, index), bit);
+          });
+          newVal = count > 0 || runtime.timerRunning.get(n.id) === true;
           break;
         }
         case "IC": {
@@ -5350,8 +5663,43 @@ function recomputeSignals() {
           newVal = incomingAnyTrue.get(node.id) ?? false;
           break;
         }
+        case "TOUCHSCREEN_DISPLAY": {
+          const activeTouches = Array.from(touchscreenActivePixels.get(node.id) ?? []);
+          activeTouches.forEach((pixelIndex) => {
+            nextDerivedPortValues.set(getTouchscreenDisplayOutputPortId(node.id, pixelIndex), true);
+          });
+          newVal = (incomingAnyTrue.get(node.id) ?? false) || activeTouches.length > 0;
+          break;
+        }
         case "NUMBER_DISPLAY": {
           newVal = incomingAnyTrue.get(node.id) ?? false;
+          break;
+        }
+        case "TIMER": {
+          const startInput = incomingPortSignals.get(`${node.id}:in:0`) ?? false;
+          const resetInput = incomingPortSignals.get(`${node.id}:in:1`) ?? false;
+          const lastStart = timerLastStartInput.get(node.id) ?? false;
+          const lastReset = timerLastResetInput.get(node.id) ?? false;
+          if (resetInput && !lastReset) {
+            timerCounts.set(node.id, 0);
+            timerRunning.set(node.id, false);
+            const timerId = timerIntervals.get(node.id);
+            if (timerId != null) {
+              clearInterval(timerId);
+              timerIntervals.delete(node.id);
+            }
+          }
+          if (startInput && !lastStart) {
+            timerRunning.set(node.id, true);
+            ensureWorkspaceTimerInterval(node);
+          }
+          timerLastStartInput.set(node.id, startInput);
+          timerLastResetInput.set(node.id, resetInput);
+          const count = timerCounts.get(node.id) ?? 0;
+          getTimerBinaryOutputs(count).forEach((bit, index) => {
+            nextDerivedPortValues.set(getTimerOutputPortId(node.id, index), bit);
+          });
+          newVal = count > 0 || timerRunning.get(node.id) === true;
           break;
         }
         case "GUIDE": {
@@ -5456,7 +5804,9 @@ function recomputeSignals() {
   updateDffVisuals();
   updateSpeakerVisuals();
   updateDisplayVisuals();
+  updateTouchscreenDisplayVisuals();
   updateNumberDisplayVisuals();
+  updateTimerVisuals();
   updateGuideVisuals();
   updateCableVisuals();
   updateICLedVisuals();
@@ -5655,7 +6005,7 @@ function updateDisplayVisuals() {
   });
 
   nodes.forEach((node) => {
-    if (node.type !== "DISPLAY") return;
+    if (node.type !== "DISPLAY" && node.type !== "TOUCHSCREEN_DISPLAY") return;
     const el =
       nodeElements.get(node.id) ??
       workspace.querySelector<HTMLDivElement>(`[data-node-id="${node.id}"]`);
@@ -5669,6 +6019,20 @@ function updateDisplayVisuals() {
         pixelEl.dataset.on = nextFlag;
         pixelEl.classList.toggle("is-on", isOn);
       });
+  });
+}
+
+function updateTouchscreenDisplayVisuals() {
+  nodes.forEach((node) => {
+    if (node.type !== "TOUCHSCREEN_DISPLAY") return;
+    const el =
+      nodeElements.get(node.id) ??
+      workspace.querySelector<HTMLDivElement>(`[data-node-id="${node.id}"]`);
+    if (!el) return;
+    el.querySelectorAll<HTMLDivElement>(".touchscreen-output-port").forEach((portEl, index) => {
+      const isOn = derivedPortValues.get(getTouchscreenDisplayOutputPortId(node.id, index)) ?? false;
+      portEl.classList.toggle("is-active", isOn);
+    });
   });
 }
 
@@ -5724,6 +6088,23 @@ function updateNumberDisplayVisuals() {
     });
     el.querySelectorAll<HTMLDivElement>(".number-display-bit-label").forEach((labelEl, index) => {
       labelEl.classList.toggle("is-active", !!inputValues[index]);
+    });
+  });
+}
+
+function updateTimerVisuals() {
+  nodes.forEach((node) => {
+    if (node.type !== "TIMER") return;
+    const el =
+      nodeElements.get(node.id) ??
+      workspace.querySelector<HTMLDivElement>(`[data-node-id="${node.id}"]`);
+    if (!el) return;
+    const count = timerCounts.get(node.id) ?? 0;
+    const readout = el.querySelector<HTMLDivElement>(".timer-readout");
+    if (readout) readout.textContent = String(count);
+    const bits = getTimerBinaryOutputs(count);
+    el.querySelectorAll<HTMLDivElement>(".timer-output-port").forEach((portEl, index) => {
+      portEl.classList.toggle("is-active", !!bits[index]);
     });
   });
 }
@@ -5787,53 +6168,19 @@ function updateCableVisuals() {
   });
 }
 
-function renderIcPreviewInto(
+function renderPaletteIcIconInto(
   container: HTMLElement,
   def: ICDefinition,
   width: number,
-  height: number,
-  state?: IcPreviewRenderState,
-  defs?: ICDefinition[]
+  height: number
 ) {
   container.innerHTML = shouldUseStaticIcPreview(def)
     ? renderStaticIcPreviewSummary(def, width, height)
     : renderIcPreviewSvg({
         def,
-        icDefinitions: defs,
         width,
         height,
-        state,
       });
-}
-
-function renderPaletteIcIconInto(
-  container: HTMLElement,
-  _def: ICDefinition,
-  width: number,
-  height: number
-) {
-  const chipWidth = Math.min(width - 22, 92);
-  const chipHeight = Math.min(height - 18, 54);
-  const chipX = (width - chipWidth) / 2;
-  const chipY = (height - chipHeight) / 2;
-  const leftPortX = chipX - 7;
-  const rightPortX = chipX + chipWidth + 7;
-  const portY = chipY + chipHeight / 2;
-
-  container.innerHTML = `
-    <svg xmlns="http://www.w3.org/2000/svg"
-         width="${width}" height="${height}"
-         viewBox="0 0 ${width} ${height}"
-         preserveAspectRatio="xMidYMid meet"
-         aria-hidden="true">
-      <rect x="${chipX}" y="${chipY}" width="${chipWidth}" height="${chipHeight}" rx="4"
-            fill="#efefef" stroke="#9ca3af" stroke-width="2" />
-      <circle cx="${leftPortX}" cy="${portY}" r="7"
-              fill="#111827" stroke="#111827" stroke-width="2" />
-      <circle cx="${rightPortX}" cy="${portY}" r="7"
-              fill="#ffffff" stroke="#6b7280" stroke-width="2" />
-    </svg>
-  `.trim();
 }
 
 function applyLightColor(node: NodeData) {
@@ -5860,9 +6207,8 @@ function updateICLedVisuals() {
     if (!icEl) return;
     icEl.classList.remove("is-active");
 
-    const previewCanvas = icEl.querySelector<HTMLDivElement>(".ic-preview-canvas");
     const def = getIcDefinitionById(node.icDefId);
-    if (!previewCanvas || !def) return;
+    if (!def) return;
 
     const layout = getIcNodeLayout(def);
     icEl.style.width = `${layout.nodeWidth}px`;
@@ -5888,36 +6234,6 @@ function updateICLedVisuals() {
       titleEl.textContent = displayNameForIcDefinition(def, node.icDefId);
       scheduleFitRenderedNodeText(icEl);
     }
-    const previewShell = icEl.querySelector<HTMLDivElement>(".ic-preview-shell");
-    if (previewShell) {
-      previewShell.classList.toggle("ic-preview-shell-empty", shouldUseStaticIcPreview(def));
-    }
-    const result = workspaceIcResults.get(node.id);
-    const previewWidth = Math.max(92, layout.nodeWidth - 32);
-    const previewHeight = Math.max(56, layout.bodyHeight - 22);
-    const previewKey = shouldUseStaticIcPreview(def)
-      ? `static:${def.id}:${previewWidth}:${previewHeight}`
-      : `live:${def.id}:${previewWidth}:${previewHeight}:${
-          def.nodes.map((entry) => (result?.nodeValues?.get(entry.id) ? "1" : "0")).join("")
-        }:${(result?.wireStates ?? []).map((value) => (value ? "1" : "0")).join("")}:${
-          (result?.ledStates ?? []).map((value) => (value ? "1" : "0")).join("")
-        }`;
-    if (previewCanvas.dataset.previewKey === previewKey) return;
-    previewCanvas.dataset.previewKey = previewKey;
-    renderIcPreviewInto(
-      previewCanvas,
-      def,
-      previewWidth,
-      previewHeight,
-      result
-        ? {
-            nodeValues: result.nodeValues,
-            wireStates: result.wireStates,
-            portOutputs: result.portOutputs,
-            ledStates: result.ledStates,
-          }
-        : undefined
-    );
   });
 }
 
@@ -6225,7 +6541,7 @@ function setDelayForSelection() {
     .map((id) => nodes.get(id))
     .filter(
       (n): n is NodeData =>
-        !!n && (n.type === "CLOCK" || n.type === "BUFFER")
+        !!n && (n.type === "CLOCK" || n.type === "BUFFER" || n.type === "TIMER")
     );
   if (nodesArr.length === 0) return;
 
@@ -6239,19 +6555,30 @@ async function setDelayForNodes(nodesArr: NodeData[]) {
   const current =
     first.type === "CLOCK"
       ? first.clockDelayMs ?? 100
-      : first.bufferDelayMs ?? 100;
+      : first.type === "BUFFER"
+        ? first.bufferDelayMs ?? 100
+        : first.timerIntervalMs ?? DEFAULT_TIMER_INTERVAL_MS;
 
-  const val = await promptNumberModal({
-    title: "Set Delay",
-    label: "Delay",
-    hint: "Longer delays make clocks slower and buffers respond later.",
-    min: 20,
-    max: 2000,
-    step: 10,
-    value: clamp(Math.round(current), 20, 2000),
-    suffix: " ms",
-    submitLabel: "Apply",
-  });
+  const val =
+    first.type === "TIMER"
+      ? await promptDurationModal({
+          title: "Set Timer Interval",
+          label: "Interval",
+          hint: "The timer increases by 1 every interval while running.",
+          valueMs: current,
+          submitLabel: "Apply",
+        })
+      : await promptNumberModal({
+          title: "Set Delay",
+          label: "Delay",
+          hint: "Longer delays make clocks slower and buffers respond later.",
+          min: 20,
+          max: 2000,
+          step: 10,
+          value: clamp(Math.round(current), 20, 2000),
+          suffix: " ms",
+          submitLabel: "Apply",
+        });
   if (val == null) return;
 
   nodesArr.forEach((n) => {
@@ -6262,6 +6589,14 @@ async function setDelayForNodes(nodesArr: NodeData[]) {
     } else if (n.type === "BUFFER") {
       n.bufferDelayMs = val;
       clearBufferTimeouts(n.id);
+    } else if (n.type === "TIMER") {
+      n.timerIntervalMs = val;
+      const existing = timerIntervals.get(n.id);
+      if (existing != null) {
+        clearInterval(existing);
+        timerIntervals.delete(n.id);
+      }
+      if (timerRunning.get(n.id)) ensureWorkspaceTimerInterval(n);
     }
   });
 
@@ -6317,7 +6652,7 @@ async function setDisplaySizeForNodes(displayNodes: NodeData[]) {
 function setDisplaySizeForSelection() {
   const displays = Array.from(selectedNodeIds)
     .map((id) => nodes.get(id))
-    .filter((n): n is NodeData => !!n && n.type === "DISPLAY");
+    .filter((n): n is NodeData => !!n && (n.type === "DISPLAY" || n.type === "TOUCHSCREEN_DISPLAY"));
   if (displays.length === 0) return;
   void setDisplaySizeForNodes(displays);
 }
@@ -6512,17 +6847,6 @@ function applyCustomNodeHeader(el: HTMLDivElement, node: NodeData) {
     }
   }
 
-  if (isRenameableNodeType(node.type) && actionsEl) {
-    let renameButton = actionsEl.querySelector<HTMLButtonElement>(".node-rename-button");
-    if (!renameButton) {
-      renameButton = document.createElement("button");
-      renameButton.type = "button";
-      renameButton.className = "node-action-button node-rename-button";
-      renameButton.textContent = "Rename";
-      actionsEl.insertBefore(renameButton, actionsEl.firstChild);
-    }
-  }
-
   if (actionsEl && actionsEl.childElementCount === 0) {
     actionsEl.remove();
   }
@@ -6531,7 +6855,16 @@ function applyCustomNodeHeader(el: HTMLDivElement, node: NodeData) {
 function fitRenderedNodeText(el: HTMLElement) {
   const nodeTitle = el.querySelector<HTMLElement>(".node-title");
   if (nodeTitle) {
-    fitTextToAvailableWidth(nodeTitle, { minFontSizePx: 7.25, minLetterSpacingEm: 0.01 });
+    const nodeId = Number((el as HTMLElement).dataset.nodeId);
+    const node = Number.isFinite(nodeId) ? nodes.get(nodeId) : undefined;
+    const hasCustomTitle = !!node?.titleText?.trim();
+    if (hasCustomTitle) {
+      fitTextToAvailableWidth(nodeTitle, { minFontSizePx: 7.25, minLetterSpacingEm: 0.01 });
+    } else {
+      nodeTitle.style.fontSize = "";
+      nodeTitle.style.letterSpacing = "";
+      nodeTitle.classList.remove("node-title-compact", "node-title-tight");
+    }
   }
 
   const icName = el.querySelector<HTMLElement>(".ic-chip-name");
@@ -6564,22 +6897,6 @@ async function renameNodeLabel(node: NodeData) {
   node.titleText = trimmed && trimmed !== fallback ? trimmed : undefined;
   rerenderNode(node);
   markWorkspaceChanged();
-}
-
-function setupRenameButton(el: HTMLDivElement, node: NodeData) {
-  const button = el.querySelector<HTMLButtonElement>(".node-rename-button");
-  if (!button) return;
-
-  button.addEventListener("mousedown", (ev) => {
-    ev.stopPropagation();
-  });
-
-  button.addEventListener("click", (ev) => {
-    ev.preventDefault();
-    ev.stopPropagation();
-    if (previewMode) return;
-    void renameNodeLabel(node);
-  });
 }
 
 async function configureKeyForSelection() {
@@ -6754,6 +7071,7 @@ function pasteSelection() {
       typeof n.cableEndY === "number" ? n.cableEndY + lastPasteOffset : undefined;
     if (
       newNode.type === "DISPLAY" ||
+      newNode.type === "TOUCHSCREEN_DISPLAY" ||
       newNode.type === "NUMBER_DISPLAY" ||
       newNode.type === "GUIDE" ||
       newNode.type === "CABLE"
@@ -7068,7 +7386,7 @@ function showContextMenu(
 
   const hasDelayNode = Array.from(selectedNodeIds).some((id) => {
     const n = nodes.get(id);
-    return n && (n.type === "CLOCK" || n.type === "BUFFER");
+    return n && (n.type === "CLOCK" || n.type === "BUFFER" || n.type === "TIMER");
   });
 
   const hasKeyNode = Array.from(selectedNodeIds).some((id) => {
@@ -7083,7 +7401,7 @@ function showContextMenu(
 
   const hasDisplayNode = Array.from(selectedNodeIds).some((id) => {
     const n = nodes.get(id);
-    return n && n.type === "DISPLAY";
+    return n && (n.type === "DISPLAY" || n.type === "TOUCHSCREEN_DISPLAY");
   });
 
   const hasNumberDisplayNode = Array.from(selectedNodeIds).some((id) => {
@@ -7100,6 +7418,10 @@ function showContextMenu(
     const n = nodes.get(id);
     return n && n.type === "CABLE";
   });
+  const selectedRenameableNodes = Array.from(selectedNodeIds)
+    .map((id) => nodes.get(id))
+    .filter((n): n is NodeData => !!n && isRenameableNodeType(n.type));
+  const canRenameSingleNode = selectedRenameableNodes.length === 1;
 
   const selectedIcCount = Array.from(selectedNodeIds).reduce((count, id) => {
     const node = nodes.get(id);
@@ -7122,6 +7444,11 @@ function showContextMenu(
   if (targetKind === "node") {
     addItem("Copy", () => copySelection(), !hasNode);
     addItem("Paste", () => pasteSelection(), !canPaste);
+    addItem(
+      "Rename…",
+      () => void renameNodeLabel(selectedRenameableNodes[0]),
+      !canRenameSingleNode || previewMode
+    );
     addItem("Create IC", () => void createICFromSelection(), !hasNode);
     addItem(
       selectedIcCount > 1 ? "Ungroup ICs" : "Ungroup IC",
@@ -8299,6 +8626,8 @@ function getDefaultPortId(
       case "KEY":
       case "CLOCK":
         return `${node.id}:out:0`;
+      case "TIMER":
+        return `${node.id}:out:${slot}`;
       case "DFF":
         return `${node.id}:out:q`;
       case "BUFFER":
@@ -8324,6 +8653,8 @@ function getDefaultPortId(
     case "BUFFER":
     case "NOT":
       return `${node.id}:in:0`;
+    case "TIMER":
+      return `${node.id}:in:${slot}`;
     case "AND":
     case "OR":
     case "NAND":
@@ -8348,6 +8679,7 @@ function makePresetNode(id: number, type: NodeType, x: number, y: number): NodeD
   if (type === "OUTPUT" || type === "LED") node.lightColor = DEFAULT_LIGHT_COLOR;
   if (type === "POWER") node.value = true;
   if (type === "CLOCK") node.clockDelayMs = 100;
+  if (type === "TIMER") node.timerIntervalMs = DEFAULT_TIMER_INTERVAL_MS;
   if (type === "DFF") node.value = false;
   if (type === "BUFFER") node.bufferDelayMs = 100;
   if (type === "KEY") {
@@ -8356,6 +8688,10 @@ function makePresetNode(id: number, type: NodeType, x: number, y: number): NodeD
   }
   if (type === "SPEAKER") node.speakerFrequencyHz = DEFAULT_SPEAKER_FREQUENCY_HZ;
   if (type === "DISPLAY") {
+    node.displayWidth = DEFAULT_DISPLAY_WIDTH;
+    node.displayHeight = DEFAULT_DISPLAY_HEIGHT;
+  }
+  if (type === "TOUCHSCREEN_DISPLAY") {
     node.displayWidth = DEFAULT_DISPLAY_WIDTH;
     node.displayHeight = DEFAULT_DISPLAY_HEIGHT;
   }
@@ -8951,15 +9287,36 @@ function buildTutorialSaveObject(): SaveFileV1 {
     toSlot: "a" | "b" | number = 0,
     fromSlot: "a" | "b" | number = 0
   ) => {
+    connectPortIds(
+      from,
+      getDefaultPortId(from, "output", fromSlot),
+      to,
+      getDefaultPortId(to, "input", toSlot)
+    );
+  };
+
+  const connectPortIds = (
+    from: NodeData,
+    fromPortId: string,
+    to: NodeData,
+    toPortId: string
+  ) => {
     tutorialWires.push({
       fromNodeId: from.id,
       toNodeId: to.id,
-      fromPortId: getDefaultPortId(from, "output", fromSlot),
-      toPortId: getDefaultPortId(to, "input", toSlot),
+      fromPortId,
+      toPortId,
     });
   };
 
-  const addNote = (x: number, y: number, text: string, width = 380, height = 210) => {
+  const addNote = (
+    x: number,
+    y: number,
+    text: string,
+    width = 380,
+    height = 210,
+    patch: Partial<Pick<NoteData, "variant">> = {}
+  ) => {
     tutorialNotes.push({
       id: tutorialNextNoteId++,
       x,
@@ -8967,6 +9324,7 @@ function buildTutorialSaveObject(): SaveFileV1 {
       width,
       height,
       text,
+      ...patch,
     });
   };
 
@@ -8979,6 +9337,50 @@ function buildTutorialSaveObject(): SaveFileV1 {
     fromSlot: "a" | "b" | number = 0
   ) => {
     connect(from, display, py * displayWidth + px, fromSlot);
+  };
+
+  const connectTouchscreenPixel = (
+    touchscreen: NodeData,
+    display: NodeData,
+    displayWidth: number,
+    px: number,
+    py: number,
+    touchIndex = py * displayWidth + px
+  ) => {
+    connectPortIds(
+      touchscreen,
+      getTouchscreenDisplayOutputPortId(touchscreen.id, touchIndex),
+      display,
+      getDisplayPortId(display.id, py * displayWidth + px)
+    );
+  };
+
+  const connectTimerBit = (
+    timer: NodeData,
+    to: NodeData,
+    timerBitIndex: number,
+    toSlot: "a" | "b" | number = 0
+  ) => {
+    connectPortIds(
+      timer,
+      getTimerOutputPortId(timer.id, timerBitIndex),
+      to,
+      getDefaultPortId(to, "input", toSlot)
+    );
+  };
+
+  const connectTimerBitToNumberDisplay = (
+    timer: NodeData,
+    numberDisplay: NodeData,
+    timerBitIndex: number,
+    displayBitIndex: number
+  ) => {
+    connectPortIds(
+      timer,
+      getTimerOutputPortId(timer.id, timerBitIndex),
+      numberDisplay,
+      getNumberDisplayPortId(numberDisplay.id, displayBitIndex)
+    );
   };
 
   const connectSpeakerTone = (from: NodeData, speaker: NodeData, toneValue: number) => {
@@ -9202,7 +9604,119 @@ function buildTutorialSaveObject(): SaveFileV1 {
     250
   );
 
-  const gameY = 4320;
+  const keySectionY = 4212;
+  const keyToggle = addNode("KEY", 864, keySectionY + 144, {
+    keyChar: "a",
+    keyMode: "toggle",
+  });
+  const keyHold = addNode("KEY", 1080, keySectionY + 144, {
+    keyChar: "s",
+    keyMode: "hold",
+  });
+  const keyPulse = addNode("KEY", 1296, keySectionY + 144, {
+    keyChar: "d",
+    keyMode: "pulse",
+  });
+  const keyToggleLamp = addNode("OUTPUT", 888, keySectionY + 264, {
+    titleText: "TOGGLE",
+    lightColor: "#f97316",
+  });
+  const keyHoldLamp = addNode("OUTPUT", 1104, keySectionY + 264, {
+    titleText: "HOLD",
+    lightColor: "#0ea5e9",
+  });
+  const keyPulseLamp = addNode("OUTPUT", 1320, keySectionY + 264, {
+    titleText: "PULSE",
+    lightColor: "#a855f7",
+  });
+  connect(keyToggle, keyToggleLamp);
+  connect(keyHold, keyHoldLamp);
+  connect(keyPulse, keyPulseLamp);
+  addNote(
+    noteX,
+    keySectionY,
+    "Keyboard input\n\nThese parts listen to real keyboard keys.\n\nTry this:\n- Click the page once so it has focus.\n- Press A to toggle the first lamp on and off.\n- Hold S to keep the second lamp lit only while the key is down.\n- Tap D to fire a quick pulse.\n\nRight-click any KEY to change the letter and mode.",
+    470,
+    250
+  );
+
+  const timerSectionY = 4680;
+  const timerStart = addNode("SWITCH", 816, timerSectionY + 156, {
+    titleText: "START",
+  });
+  const timerResetDemo = addNode("BUTTON", 816, timerSectionY + 276, {
+    titleText: "RESET",
+  });
+  const timerDemo = addNode("TIMER", 1104, timerSectionY + 180, {
+    timerIntervalMs: 1000,
+  });
+  const timerReadout = addNode("NUMBER_DISPLAY", 1392, timerSectionY + 156, {
+    numberDigits: 2,
+  });
+  const timerBitLamps = [
+    addNode("OUTPUT", 1704, timerSectionY + 120, {
+      titleText: "1",
+      lightColor: "#f59e0b",
+    }),
+    addNode("OUTPUT", 1812, timerSectionY + 120, {
+      titleText: "2",
+      lightColor: "#38bdf8",
+    }),
+    addNode("OUTPUT", 1920, timerSectionY + 120, {
+      titleText: "4",
+      lightColor: "#34d399",
+    }),
+    addNode("OUTPUT", 1704, timerSectionY + 240, {
+      titleText: "8",
+      lightColor: "#a78bfa",
+    }),
+    addNode("OUTPUT", 1812, timerSectionY + 240, {
+      titleText: "16",
+      lightColor: "#fb7185",
+    }),
+    addNode("OUTPUT", 1920, timerSectionY + 240, {
+      titleText: "32",
+      lightColor: "#eab308",
+    }),
+  ];
+  connect(timerStart, timerDemo, 0);
+  connect(timerResetDemo, timerDemo, 1);
+  timerBitLamps.forEach((lamp, index) => {
+    connectTimerBit(timerDemo, lamp, index);
+    connectTimerBitToNumberDisplay(timerDemo, timerReadout, index, index);
+  });
+  addNote(
+    noteX,
+    timerSectionY,
+    "Timer + number display\n\nFlip START on once and the timer begins counting upward. Press RESET to clear it.\n\nWhat you're seeing:\n- The six lamps show the timer's binary outputs: 1, 2, 4, 8, 16, and 32.\n- The number display groups inputs by digit in 4-bit chunks, so this 2-digit readout counts in hex: 00, 01, ... 0F, 10, and so on.\n- Right-click the timer to change how fast it ticks.",
+    508,
+    286
+  );
+
+  const touchSectionY = 5160;
+  const touchDemoWidth = 4;
+  const touchDemo = addNode("TOUCHSCREEN_DISPLAY", 936, touchSectionY + 144, {
+    displayWidth: touchDemoWidth,
+    displayHeight: 4,
+  });
+  const touchMirror = addNode("DISPLAY", 1536, touchSectionY + 144, {
+    displayWidth: touchDemoWidth,
+    displayHeight: 4,
+  });
+  Array.from({ length: touchDemoWidth * 4 }, (_, index) => {
+    const col = index % touchDemoWidth;
+    const row = Math.floor(index / touchDemoWidth);
+    connectTouchscreenPixel(touchDemo, touchMirror, touchDemoWidth, col, row, index);
+  });
+  addNote(
+    noteX,
+    touchSectionY,
+    "Touchscreen display\n\nThis part is both an input surface and an output source.\n\nTry this:\n- Click and hold any pixel on the TOUCH display.\n- The matching pixel lights on the DISPLAY beside it.\n- Release it and the signal drops again.\n\nOn the touchscreen, the left grid feeds the screen itself and the right grid exposes per-pixel outputs for the rest of your circuit.",
+    516,
+    274
+  );
+
+  const gameY = 5712;
   const moveButtonOriginX = 744;
   const moveButtonOriginY = gameY + 120;
   const moveSwitchSpacing = 120;
@@ -9311,8 +9825,8 @@ function buildTutorialSaveObject(): SaveFileV1 {
 
   addNote(
     noteX,
-    4212,
-    "Logic-gate tic-tac-toe\n\nThis last section is a real circuit, not a scripted widget.\n\nControls:\n- The 9 MOVE buttons are the only player inputs.\n- Press one button to place X in that square.\n- The AI answers automatically after a short buffer delay.\n- Press RESET to clear the board.\n\nOpen these ICs from the left custom-IC column:\n- TIC TAC TOE: board memory + turn timing, with guides fanning the shared clock pulse.\n- TTT WIN CHECK: rows / columns / diagonals.\n- TTT SIMPLE AI: win if possible, block if needed, otherwise pick a decent empty square.\n\nThe AI is intentionally beatable now, so this stays teachable instead of feeling magical.",
+    gameY - 108,
+    "Logic-gate tic-tac-toe\n\nThis section is a real circuit, not a scripted widget.\n\nControls:\n- The 9 MOVE buttons are the only player inputs.\n- Press one button to place X in that square.\n- The AI answers automatically after a short buffer delay.\n- Press RESET to clear the board.\n\nOpen these ICs from the left custom-IC column:\n- TIC TAC TOE: board memory + turn timing, with guides fanning the shared clock pulse.\n- TTT WIN CHECK: rows / columns / diagonals.\n- TTT SIMPLE AI: win if possible, block if needed, otherwise pick a decent empty square.\n\nThe AI is intentionally beatable now, so this stays teachable instead of feeling magical.",
     552,
     356
   );
@@ -9325,12 +9839,30 @@ function buildTutorialSaveObject(): SaveFileV1 {
     230
   );
 
+  const tipsY = gameY + 1392;
   addNote(
     noteX,
-    5568,
-    "Tips\n\nRight-click nodes to open the custom control panels.\nUse the middle mouse button to pan.\nRight-click blank space to create your own note.\nUse Delete or Backspace to remove selected notes, wires, or gates.\n\nScroll back up and experiment with any section.",
-    430,
-    220
+    tipsY,
+    "Tips\n\nRight-click nodes to open the custom control panels.\nUse the middle mouse button to pan.\nClick the page once before testing KEY nodes.\nRight-click blank space to create your own note.\nUse Delete or Backspace to remove selected notes, wires, or gates.\n\nScroll back up and remix any section.",
+    446,
+    236
+  );
+
+  const finaleY = tipsY + 324;
+  addNote(
+    noteX,
+    finaleY + 18,
+    "Nice work.\n\nYou just toured switches, gates, timing, custom ICs, keyboard controls, timers, touchscreens, displays, and a full logic game.\n\nNow build something a little weird.\nStart tiny, test often, and let the circuit surprise you.",
+    484,
+    258
+  );
+  addNote(
+    612,
+    finaleY,
+    "CIRKIT",
+    1608,
+    280,
+    { variant: "banner" }
   );
 
   return {
@@ -9805,6 +10337,14 @@ function portPosForPreview(
     if (Number.isFinite(index) && index >= 0) {
       return getDisplayPixelCoordinates(node, index);
     }
+  } else if (node.type === "TOUCHSCREEN_DISPLAY") {
+    const index = Number(suffix);
+    if (role === "in" && Number.isFinite(index) && index >= 0) {
+      return getDisplayPixelCoordinates(node, index);
+    }
+    if (role === "out" && Number.isFinite(index) && index >= 0) {
+      return getTouchscreenDisplayOutputCoordinates(node, index);
+    }
   } else if (node.type === "NUMBER_DISPLAY" && role === "in") {
     const layout = getNumberDisplayLayout(node);
     const index = clamp(Number(suffix), 0, layout.portPlacements.length - 1);
@@ -9882,15 +10422,36 @@ function computeBoundsForPreview(
 }
 
 function wirePathD(x1: number, y1: number, x2: number, y2: number) {
-  const dx = Math.abs(x2 - x1);
-  const controlOffset = Math.max(40, dx / 2);
-  const cx1 = x1 + controlOffset;
-  const cx2 = x2 - controlOffset;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+
+  if (absDx < 1 && absDy < 1) {
+    return `M ${x1} ${y1}`;
+  }
+
+  if (absDy <= 1) {
+    return `M ${x1} ${y1} L ${x2} ${y2}`;
+  }
+
+  const direction = dx >= 0 ? 1 : -1;
+  const maxSafeOffset = Math.max(8, absDx / 2 - 3);
+  const desiredOffset = 18 + Math.min(absDx, 48) * 0.2 + Math.min(absDy, 80) * 0.08;
+  const controlOffset = Math.min(desiredOffset, maxSafeOffset);
+
+  if (controlOffset <= 10) {
+    return `M ${x1} ${y1} L ${x2} ${y2}`;
+  }
+
+  const cx1 = x1 + direction * controlOffset;
+  const cx2 = x2 - direction * controlOffset;
   return `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`;
 }
 
 function renderCircuitThumbSvg(opts: {
   nodes: NodeData[];
+  notes?: NoteData[];
   wires: { fromNodeId: number; toNodeId: number; fromPortId: string; toPortId: string }[];
   icDefinitions: ICDefinition[];
   width: number;
@@ -9907,10 +10468,35 @@ function renderCircuitThumbSvg(opts: {
   const nodeMap = new Map<number, NodeData>();
   opts.nodes.forEach((n) => nodeMap.set(n.id, n));
 
-  const bg = "#0b1220";
-  const fg = "rgba(255,255,255,0.85)";
-  const stroke = "rgba(255,255,255,0.22)";
-  const wire = "rgba(255,255,255,0.32)";
+  const bg = "#f8fafc";
+  const gridLine = "#e2e8f0";
+  const noteFill = "#fef3c7";
+  const noteStroke = "rgba(180, 83, 9, 0.18)";
+
+  const notesSvg = (opts.notes ?? [])
+    .map((note) => {
+      const lines = note.text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 3);
+      return `
+        <g>
+          <rect x="${note.x}" y="${note.y}" width="${note.width}" height="${note.height}" rx="12"
+            fill="${noteFill}" stroke="${noteStroke}" stroke-width="1.5" />
+          ${lines
+            .map(
+              (line, index) => `
+                <text x="${note.x + 12}" y="${note.y + 22 + index * 14}"
+                  font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+                  font-size="11" fill="rgba(120,53,15,0.82)">${escapeHtml(line)}</text>
+              `.trim()
+            )
+            .join("")}
+        </g>
+      `.trim();
+    })
+    .join("");
 
   const wiresSvg = opts.wires
     .map((w) => {
@@ -9920,41 +10506,30 @@ function renderCircuitThumbSvg(opts: {
       const p1 = portPosForPreview(fromNode, w.fromPortId, icDefMap);
       const p2 = portPosForPreview(toNode, w.toPortId, icDefMap);
       const d = wirePathD(p1.x, p1.y, p2.x, p2.y);
-      return `<path d="${d}" fill="none" stroke="${wire}" stroke-width="3" stroke-linecap="round" />`;
+      return `<path d="${d}" fill="none" stroke="rgba(15,23,42,0.24)" stroke-width="3" stroke-linecap="round" />`;
     })
     .join("");
 
   const nodesSvg = opts.nodes
     .map((n) => {
-      const { w, h } = nodeApproxSize(n, icDefMap);
-      const label =
-        n.type === "IC"
-          ? (n.icDefId != null ? icDefMap.get(n.icDefId)?.name : "IC") ?? "IC"
-          : n.type;
-
-      const isOutput = n.type === "OUTPUT" || n.type === "LED";
-      const accent = isOutput ? "rgba(34,197,94,0.55)" : "rgba(99,102,241,0.45)";
-
-      const rx = n.type === "IC" ? 6 : 10;
-
-      return `
-        <g>
-          <rect x="${n.x}" y="${n.y}" width="${w}" height="${h}" rx="${rx}" ry="${rx}"
-                fill="rgba(255,255,255,0.06)" stroke="${stroke}" stroke-width="2" />
-          <rect x="${n.x}" y="${n.y}" width="${w}" height="22" rx="${rx}" ry="${rx}"
-                fill="rgba(255,255,255,0.07)" stroke="none" />
-          <circle cx="${n.x + 10}" cy="${n.y + 11}" r="4" fill="${accent}" />
-          <text x="${n.x + 20}" y="${n.y + 15}"
-                font-family="ui-monospace, Menlo, Monaco, Consolas, 'Courier New', monospace"
-                font-size="11" fill="${fg}">${escapeHtml(label)}</text>
-        </g>
-      `;
+      if (
+        n.type === "AND" ||
+        n.type === "OR" ||
+        n.type === "XOR" ||
+        n.type === "NAND" ||
+        n.type === "NOR" ||
+        n.type === "NOT" ||
+        n.type === "BUFFER"
+      ) {
+        return renderPreviewGateNode(n, false, false, false, false);
+      }
+      return renderPreviewSimpleNode(n, icDefMap);
     })
     .join("");
 
   const titleSvg = opts.title
     ? `<text x="${bounds.minX + 10}" y="${bounds.minY + 18}" font-family="system-ui, -apple-system, Segoe UI"
-             font-size="12" fill="rgba(255,255,255,0.55)">${escapeHtml(opts.title)}</text>`
+             font-size="12" fill="rgba(15,23,42,0.48)">${escapeHtml(opts.title)}</text>`
     : "";
 
   return `
@@ -9963,13 +10538,14 @@ function renderCircuitThumbSvg(opts: {
          viewBox="${bounds.minX} ${bounds.minY} ${vbW} ${vbH}"
          preserveAspectRatio="xMidYMid meet">
       <defs>
-        <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0" stop-color="${bg}" />
-          <stop offset="1" stop-color="#111827" />
-        </linearGradient>
+        <pattern id="workspace-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+          <path d="M 24 0 L 0 0 0 24" fill="none" stroke="${gridLine}" stroke-width="1" />
+        </pattern>
       </defs>
-      <rect x="${bounds.minX}" y="${bounds.minY}" width="${vbW}" height="${vbH}" fill="url(#g)" />
+      <rect x="${bounds.minX}" y="${bounds.minY}" width="${vbW}" height="${vbH}" fill="${bg}" />
+      <rect x="${bounds.minX}" y="${bounds.minY}" width="${vbW}" height="${vbH}" fill="url(#workspace-grid)" />
       ${titleSvg}
+      ${notesSvg}
       ${wiresSvg}
       ${nodesSvg}
     </svg>
@@ -9991,6 +10567,7 @@ async function getCircuitThumbById(circuitId: number, title?: string): Promise<s
 
   const svg = renderCircuitThumbSvg({
     nodes: data.nodes,
+    notes: data.notes,
     wires: data.wires,
     icDefinitions: data.icDefinitions,
     width: 360,
@@ -10487,6 +11064,94 @@ async function promptDisplaySizeModal(current: {
   });
 }
 
+async function promptDurationModal(opts: {
+  title: string;
+  label: string;
+  hint?: string;
+  valueMs: number;
+  submitLabel?: string;
+}): Promise<number | null> {
+  return await new Promise((resolve) => {
+    const units = [
+      { value: "ms", label: "Milliseconds", factor: 1 },
+      { value: "s", label: "Seconds", factor: 1000 },
+      { value: "m", label: "Minutes", factor: 60000 },
+    ] as const;
+
+    const pickBestUnit = (valueMs: number) => {
+      if (valueMs % 60000 === 0) return units[2];
+      if (valueMs % 1000 === 0) return units[1];
+      return units[0];
+    };
+
+    const bestUnit = pickBestUnit(opts.valueMs);
+    const m = showModal({
+      title: opts.title,
+      bodyHTML: `
+        <div class="cirkit-modal-form">
+          <div class="cirkit-modal-help">${escapeHtml(opts.hint ?? "")}</div>
+          <div class="cirkit-field-group">
+            <label class="cirkit-field-label">${escapeHtml(opts.label)}</label>
+            <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;">
+              <input class="cirkit-slider-number cirkit-duration-amount" type="number" min="1" step="1" value="${Math.max(1, Math.round(opts.valueMs / bestUnit.factor))}" />
+              <select class="cirkit-key-mode cirkit-duration-unit">
+                ${units.map((unit) => `<option value="${unit.value}" ${unit.value === bestUnit.value ? "selected" : ""}>${unit.label}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+          <div class="cirkit-display-size-summary">
+            <span>Stored interval</span>
+            <strong class="cirkit-duration-readout"></strong>
+          </div>
+        </div>
+      `,
+    });
+
+    let settled = false;
+    const amountEl = m.modal.querySelector<HTMLInputElement>(".cirkit-duration-amount")!;
+    const unitEl = m.modal.querySelector<HTMLSelectElement>(".cirkit-duration-unit")!;
+    const readoutEl = m.modal.querySelector<HTMLDivElement>(".cirkit-duration-readout")!;
+
+    const sync = () => {
+      const unit = units.find((item) => item.value === unitEl.value) ?? units[0];
+      const amount = Math.max(1, Math.round(Number(amountEl.value || 1)));
+      amountEl.value = String(amount);
+      const valueMs = clamp(amount * unit.factor, MIN_TIMER_INTERVAL_MS, MAX_TIMER_INTERVAL_MS);
+      readoutEl.textContent = `${valueMs} ms`;
+      return valueMs;
+    };
+
+    const closeWith = (value: number | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+      m.close();
+    };
+
+    m.backdrop.addEventListener("cirkit-modal:closing", () => {
+      if (!settled) {
+        settled = true;
+        resolve(null);
+      }
+    }, { once: true });
+
+    amountEl.addEventListener("input", sync);
+    unitEl.addEventListener("change", sync);
+    amountEl.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        closeWith(sync());
+      }
+    });
+
+    sync();
+    m.setButtons([
+      { label: "Cancel", kind: "ghost", onClick: () => closeWith(null) },
+      { label: opts.submitLabel ?? "Apply", kind: "primary", onClick: () => closeWith(sync()) },
+    ]);
+  });
+}
+
 async function promptKeyConfigModal(current: {
   keyChar: string;
   keyMode: "toggle" | "hold" | "pulse";
@@ -10768,7 +11433,6 @@ accountOverlay.innerHTML = `
 
       <div class="account-circuits" style="margin-top:12px;">
         <div class="account-circuit-header">
-          <h3>My Circuits</h3>
           <button type="button" class="account-refresh-circuits">Refresh</button>
         </div>
         <div class="account-circuit-list"></div>
@@ -11566,7 +12230,6 @@ async function refreshToolbox() {
 
     void runWithConcurrency(filtered, 4, async (entry) => {
       const fullEntry = await api<ToolboxEntry>("/api/toolbox/" + entry.id);
-      const defs = (fullEntry.data.icDefinitions || []) as ICDefinition[];
       const validation = validateSingleIcBoard(fullEntry.data);
 
       const card = shell.gridEl.querySelector<HTMLDivElement>(
@@ -11585,7 +12248,16 @@ async function refreshToolbox() {
         return;
       }
 
-      renderIcPreviewInto(preview, validation.rootDef, 280, 180, undefined, defs);
+      const svg = renderCircuitThumbSvg({
+        nodes: fullEntry.data.nodes,
+        notes: fullEntry.data.notes,
+        wires: fullEntry.data.wires,
+        icDefinitions: fullEntry.data.icDefinitions,
+        width: 280,
+        height: 180,
+        title: entry.name,
+      });
+      preview.innerHTML = `<img class="thumb-img" alt="${escapeHtml(entry.name)} preview" src="${svgToDataUrl(svg)}" />`;
       skel.style.display = "none";
     });
   }

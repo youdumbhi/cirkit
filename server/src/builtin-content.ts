@@ -707,6 +707,10 @@ function buildTwoBitCalculatorCircuit(
     notSub
   );
 
+  nodes.forEach((node) => {
+    node.x += 264;
+  });
+
   wires.push(
     { fromNodeId: a0.id, toNodeId: adder.id, fromPortId: getDefaultPortId(a0, "output"), toPortId: getDefaultPortId(adder, "input", 0) },
     { fromNodeId: a1.id, toNodeId: adder.id, fromPortId: getDefaultPortId(a1, "output"), toPortId: getDefaultPortId(adder, "input", 1) },
@@ -740,8 +744,8 @@ function buildTwoBitCalculatorCircuit(
   );
 
   notes.push(
-    { id: 1, x: 48, y: 24, width: 264, height: 120, text: "2-bit calculator\n\nA and B are the inputs.\nSUB off = A + B\nSUB on = A - B (two's complement)." },
-    { id: 2, x: 1008, y: 480, width: 264, height: 96, text: "The result display shows the 4-bit output from the adder IC." }
+    { id: 1, x: 36, y: 36, width: 248, height: 136, text: "2-bit calculator\n\nA and B are the inputs.\nSUB off = A + B\nSUB on = A - B (two's complement)." },
+    { id: 2, x: 1332, y: 420, width: 252, height: 108, text: "The result display shows the full 4-bit output from the adder IC, so subtraction can go negative in two's complement." }
   );
 
   return {
@@ -791,8 +795,8 @@ function buildLetterDisplayCircuit(): SaveFileV1 {
   const notes: NoteData[] = [
     {
       id: 1,
-      x: 48,
-      y: 288,
+      x: 36,
+      y: 360,
       width: 288,
       height: 144,
       text: "2-bit letter decoder\n\n00 = H\n01 = E\n10 = L\n11 = O",
@@ -865,8 +869,8 @@ function buildSongPlayerCircuit(): SaveFileV1 {
   const notes: NoteData[] = [
     {
       id: 1,
-      x: 48,
-      y: 312,
+      x: 36,
+      y: 384,
       width: 300,
       height: 132,
       text: "8-step melody player\n\nA clock advances the 3-bit counter.\nLogic gates decode each step into a note for the speaker.",

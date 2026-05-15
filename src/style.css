@@ -268,6 +268,10 @@ body {
   z-index: 1;
 }
 
+.node-display .display-output-grid {
+  z-index: 1;
+}
+
 .node-display .display-screen {
   z-index: 2;
 }
@@ -365,6 +369,35 @@ body {
   z-index: 1;
 }
 
+.workspace-note-banner {
+  border-radius: 28px;
+  border-color: rgba(15, 23, 42, 0.16);
+  background:
+    radial-gradient(circle at 18% 22%, rgba(251, 191, 36, 0.28), transparent 20%),
+    radial-gradient(circle at 82% 30%, rgba(125, 211, 252, 0.3), transparent 22%),
+    linear-gradient(135deg, #0f172a 0%, #1d4ed8 34%, #0ea5e9 62%, #f97316 100%);
+  background-size: 150% 150%;
+  box-shadow: 0 28px 60px rgba(15, 23, 42, 0.24);
+  animation: tutorial-banner-flow 14s ease-in-out infinite;
+}
+
+.workspace-note-banner::before {
+  content: "";
+  position: absolute;
+  inset: -24%;
+  background: linear-gradient(
+    100deg,
+    transparent 28%,
+    rgba(255, 255, 255, 0.04) 42%,
+    rgba(255, 255, 255, 0.36) 50%,
+    rgba(255, 255, 255, 0.08) 58%,
+    transparent 72%
+  );
+  transform: translateX(-58%) skewX(-18deg);
+  animation: tutorial-banner-sheen 6s ease-in-out infinite;
+  pointer-events: none;
+}
+
 .workspace-note-text {
   flex: 1 1 auto;
   width: 100%;
@@ -378,8 +411,25 @@ body {
   font: 400 14px/1.45 var(--font);
 }
 
+.workspace-note-banner .workspace-note-text {
+  position: relative;
+  z-index: 1;
+  padding: 86px 28px 32px;
+  color: #eff6ff;
+  font: 800 88px/0.95 "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  text-align: center;
+  text-shadow: 0 10px 28px rgba(15, 23, 42, 0.4);
+  caret-color: rgba(255, 255, 255, 0.65);
+}
+
 .workspace-note-text::placeholder {
   color: rgba(68, 55, 16, 0.48);
+}
+
+.workspace-note-banner .workspace-note-text::placeholder {
+  color: rgba(239, 246, 255, 0.5);
 }
 
 .workspace-note-resize {
@@ -397,6 +447,12 @@ body {
   opacity: 0.8;
 }
 
+.workspace-note-banner .workspace-note-resize {
+  background:
+    linear-gradient(135deg, transparent 0 46%, rgba(255, 255, 255, 0.9) 46% 54%, transparent 54% 100%),
+    linear-gradient(135deg, transparent 0 63%, rgba(255, 255, 255, 0.9) 63% 71%, transparent 71% 100%);
+}
+
 .workspace-note-resize:hover {
   opacity: 1;
 }
@@ -404,6 +460,17 @@ body {
 .note-selected {
   border-color: var(--select-blue);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18), 0 12px 24px rgba(15, 23, 42, 0.12);
+}
+
+@keyframes tutorial-banner-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes tutorial-banner-sheen {
+  0% { transform: translateX(-58%) skewX(-18deg); }
+  100% { transform: translateX(62%) skewX(-18deg); }
 }
 
 /* Ports */
@@ -2599,12 +2666,12 @@ body {
     grid-template-rows: auto 1fr auto;
   }
   
-  .thumb-wrap {
-    position: relative;
-    background: #0b1220;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-    min-height: 120px;
-  }
+.thumb-wrap {
+  position: relative;
+  background: #f8fafc;
+  border-bottom: 1px solid rgba(17, 24, 39, 0.08);
+  min-height: 120px;
+}
   
   .thumb-wrap.small {
     min-height: 110px;
@@ -2617,36 +2684,36 @@ body {
     object-fit: cover;
   }
   
-  .thumb-badge {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    background: rgba(255,255,255,0.10);
-    color: rgba(255,255,255,0.92);
-    border: 1px solid rgba(255,255,255,0.14);
-    padding: 4px 8px;
-    border-radius: 999px;
-    font-size: 11px;
-    backdrop-filter: blur(8px);
-  }
+.thumb-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #111827;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  backdrop-filter: blur(8px);
+}
   
-  .thumb-label {
-    position: absolute;
-    top: 8px;
-    left: 10px;
-    font-size: 11px;
-    color: rgba(255,255,255,0.72);
-    letter-spacing: 0.01em;
-    z-index: 2;
-  }
+.thumb-label {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  font-size: 11px;
+  color: rgba(17, 24, 39, 0.6);
+  letter-spacing: 0.01em;
+  z-index: 2;
+}
   
-  .thumb-skeleton {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.12), rgba(255,255,255,0.06));
-    background-size: 200% 100%;
-    animation: sk 1.05s ease-in-out infinite;
-  }
+.thumb-skeleton {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(226,232,240,0.45), rgba(255,255,255,0.95), rgba(226,232,240,0.45));
+  background-size: 200% 100%;
+  animation: sk 1.05s ease-in-out infinite;
+}
   
   @keyframes sk {
     0% { background-position: 0% 0; }
@@ -3155,6 +3222,28 @@ body {
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
 }
 
+.display-output-grid {
+  position: absolute;
+  border-radius: 10px;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)),
+    rgba(2, 6, 23, 0.62);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+}
+
+.display-side-label {
+  position: absolute;
+  top: 8px;
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  pointer-events: none;
+  z-index: 3;
+  white-space: nowrap;
+}
+
 .display-port {
   width: 10px;
   height: 10px;
@@ -3171,6 +3260,17 @@ body {
   border-color: #f8fafc;
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.14);
   transform: translateY(-50%) scale(1.12);
+}
+
+.touchscreen-output-port {
+  right: auto;
+  transform: translate(0, -50%);
+}
+
+.touchscreen-output-port.is-active {
+  background: #f97316;
+  border-color: #f97316;
+  box-shadow: 0 0 0 2px rgba(249,115,22,0.18);
 }
 
 .display-screen {
@@ -3375,35 +3475,6 @@ body {
   border: 2px solid rgba(71, 85, 105, 0.42);
 }
 
-.ic-preview-shell {
-  position: absolute;
-  inset: 28px 10px 8px 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 1;
-  overflow: hidden;
-  border-radius: 12px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background:
-    radial-gradient(circle at top left, rgba(251, 191, 36, 0.1), transparent 40%),
-    linear-gradient(180deg, rgba(255,255,255,0.98), rgba(241,245,249,0.96));
-}
-
-.ic-preview-shell-compact {
-  inset: 24px 8px 8px 8px;
-}
-
-.ic-preview-canvas {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-}
-
-.ic-preview-canvas svg,
 .ic-mini-preview svg,
 .toolbox-ic-preview svg {
   display: block;
@@ -3467,28 +3538,6 @@ body {
 
 .palette-section-grid-ics {
   grid-template-columns: 1fr;
-}
-
-.ic-preview-shell {
-  top: 34px;
-}
-
-.ic-preview-shell-empty {
-  background: transparent;
-  box-shadow: none;
-  border-color: transparent;
-}
-
-.ic-preview-canvas {
-  position: relative;
-  width: 100%;
-  height: 100%;
-}
-
-.ic-preview-canvas > svg {
-  display: block;
-  width: 100%;
-  height: 100%;
 }
 
 .palette-item-ic {
@@ -3860,6 +3909,73 @@ body {
 
 .node-number-display .node-header {
   letter-spacing: 0.12em;
+}
+
+.node-timer {
+  min-width: 172px;
+}
+
+.timer-body {
+  position: relative;
+  min-height: 88px;
+}
+
+.timer-input-start {
+  top: 26%;
+}
+
+.timer-input-reset {
+  top: 74%;
+}
+
+.timer-input-label,
+.timer-bit-label {
+  position: absolute;
+  font-size: 8px;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.03em;
+  pointer-events: none;
+}
+
+.timer-input-label-start {
+  left: 12px;
+  top: 12px;
+}
+
+.timer-input-label-reset {
+  left: 12px;
+  bottom: 11px;
+}
+
+.timer-readout {
+  position: absolute;
+  left: 47%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 48px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  border: 2px solid #0f172a;
+  text-align: center;
+  font: 700 18px/1 ui-monospace, Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+.timer-output-port {
+  right: -7px;
+}
+
+.timer-bit-label {
+  right: 12px;
+  transform: translateY(-50%);
+}
+
+.timer-output-port.is-active {
+  background: #f97316;
+  border-color: #f97316;
+  box-shadow: 0 0 0 2px rgba(249,115,22,0.18);
 }
 
 .number-display-body {
